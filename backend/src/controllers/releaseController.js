@@ -1,4 +1,5 @@
 const releaseService = require('../services/releaseService');
+const { getSectorFilter } = require('../middleware/auth');
 
 function getAll(req, res, next) {
   try {
@@ -7,7 +8,8 @@ function getAll(req, res, next) {
       printer_id: req.query.printer_id,
       sector_id: req.query.sector_id,
     };
-    const releases = releaseService.getAll(filters);
+    const sectorIds = getSectorFilter(req);
+    const releases = releaseService.getAll(filters, sectorIds);
     res.json(releases);
   } catch (err) {
     next(err);

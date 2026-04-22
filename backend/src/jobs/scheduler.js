@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const snmpService = require('../services/snmpService');
+const alertService = require('../services/alertService');
 
 const COLLECT_INTERVAL = process.env.SNMP_COLLECT_INTERVAL || '*/30 * * * *';
 const MONTH_CLOSE_SCHEDULE = '1 0 1 * *'; // dia 1 de cada mes as 00:01
@@ -24,6 +25,10 @@ function start() {
     console.log(`[Scheduler] Iniciando coleta SNMP - ${new Date().toLocaleString('pt-BR')}`);
     try {
       await snmpService.collectAll();
+      const alertResult = alertService.generateAlerts();
+      if (alertResult.created > 0 || alertResult.resolved > 0) {
+        console.log(`[Alerts] +${alertResult.created} criados, -${alertResult.resolved} resolvidos`);
+      }
     } catch (err) {
       console.error('[Scheduler] Erro na coleta SNMP:', err.message);
     }

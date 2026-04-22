@@ -5,6 +5,8 @@ import { api } from '@/lib/api';
 import { Release, Printer, Sector } from '@/lib/types';
 import { formatDateTime, getCurrentPeriod, getMonthOptions } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
+import SortableTh from '@/components/SortableTh';
+import { useTableSort } from '@/hooks/useTableSort';
 
 export default function Liberacoes() {
   const [releases, setReleases] = useState<Release[]>([]);
@@ -50,6 +52,19 @@ export default function Liberacoes() {
   usePolling(() => fetchReleases(false), { intervalMs: 30000 });
 
   const totalPages = releases.reduce((sum, r) => sum + r.amount, 0);
+
+  const { sortKey, sortDir, handleSort, sortedData } = useTableSort(releases, {
+    columns: {
+      created_at: { key: 'created_at', getter: (r) => r.created_at || '', defaultDir: 'desc' },
+      printer_name: { key: 'printer_name', getter: (r) => r.printer_name || '' },
+      sector_name: { key: 'sector_name', getter: (r) => r.sector_name || '' },
+      amount: { key: 'amount', getter: (r) => r.amount, defaultDir: 'desc' },
+      reason: { key: 'reason', getter: (r) => r.reason || '' },
+      released_by: { key: 'released_by', getter: (r) => r.released_by || '' },
+    },
+    defaultKey: 'created_at',
+    defaultDir: 'desc',
+  });
 
   return (
     <div>
@@ -119,16 +134,22 @@ export default function Liberacoes() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200">
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Data/Hora</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Impressora</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Setor</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Páginas</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Motivo</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-500">Liberado por</th>
+                <SortableTh label="Data/Hora" sortKey="created_at" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Impressora" sortKey="printer_name" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Setor" sortKey="sector_name" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Páginas" sortKey="amount" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Motivo" sortKey="reason" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Liberado por" sortKey="released_by" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
               </tr>
             </thead>
             <tbody>
-              {releases.map((release) => (
+              {sortedData.map((release) => (
                 <tr key={release.id} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="p-4 text-slate-500 text-sm">{formatDateTime(release.created_at)}</td>
                   <td className="p-4 font-medium text-slate-800">{release.printer_name}</td>
@@ -144,7 +165,7 @@ export default function Liberacoes() {
                   <td className="p-4 text-slate-600 text-sm">{release.released_by || '-'}</td>
                 </tr>
               ))}
-              {releases.length === 0 && (
+              {sortedData.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-400">
                     Nenhuma liberação encontrada para este período

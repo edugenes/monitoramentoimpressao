@@ -7,6 +7,8 @@ import { formatDateTime } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
+import SortableTh from '@/components/SortableTh';
+import { useTableSort } from '@/hooks/useTableSort';
 import { Plus, Pencil, Trash2, Search, Building2 } from 'lucide-react';
 
 const PAGE_SIZE = 12;
@@ -60,7 +62,17 @@ export default function Setores() {
     (s.responsible && s.responsible.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { sortKey, sortDir, handleSort, sortedData } = useTableSort(filtered, {
+    columns: {
+      name: { key: 'name', getter: (s) => s.name },
+      responsible: { key: 'responsible', getter: (s) => s.responsible || '' },
+      status: { key: 'status', getter: (s) => (s.active ? 1 : 0), defaultDir: 'desc' },
+      created_at: { key: 'created_at', getter: (s) => s.created_at || '', defaultDir: 'desc' },
+    },
+    defaultKey: 'name',
+  });
+
+  const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -91,10 +103,14 @@ export default function Setores() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50">
-                    <th className="text-left p-3 pl-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsável</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Cadastro</th>
+                    <SortableTh label="Nome" sortKey="name" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} className="pl-4" />
+                    <SortableTh label="Responsável" sortKey="responsible" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    <SortableTh label="Status" sortKey="status" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    <SortableTh label="Cadastro" sortKey="created_at" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
                     <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>
                   </tr>
                 </thead>
@@ -134,7 +150,7 @@ export default function Setores() {
                 </tbody>
               </table>
             </div>
-            <Pagination currentPage={page} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+            <Pagination currentPage={page} totalItems={sortedData.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
           </>
         )}
       </div>

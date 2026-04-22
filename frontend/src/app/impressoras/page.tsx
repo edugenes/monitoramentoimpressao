@@ -7,11 +7,15 @@ import { formatDateTime } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
 import Pagination from '@/components/Pagination';
+import SortableTh from '@/components/SortableTh';
+import { useTableSort } from '@/hooks/useTableSort';
+import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Pencil, Trash2, Search, Printer as PrinterIcon, Wifi, WifiOff, Droplets } from 'lucide-react';
 
 const PAGE_SIZE = 12;
 
 export default function Impressoras() {
+  const { isAdmin } = useAuth();
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [latestReadings, setLatestReadings] = useState<Record<number, SnmpReading>>({});
@@ -119,7 +123,28 @@ export default function Impressoras() {
       (p.local_description && p.local_description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { sortKey, sortDir, handleSort, sortedData } = useTableSort(filtered, {
+    columns: {
+      name: { key: 'name', getter: (p) => p.name },
+      sector: { key: 'sector', getter: (p) => p.sector_name || '' },
+      ip: { key: 'ip', getter: (p) => p.ip_address || '' },
+      counter: { key: 'counter', getter: (p) => latestReadings[p.id]?.page_count ?? null, defaultDir: 'desc' },
+      toner: {
+        key: 'toner',
+        getter: (p) => {
+          const r = latestReadings[p.id];
+          if (!r) return null;
+          if (r.toner_black != null) return r.toner_black;
+          return r.toner_level ?? null;
+        },
+        defaultDir: 'asc',
+      },
+      status: { key: 'status', getter: (p) => (p.active ? 1 : 0), defaultDir: 'desc' },
+    },
+    defaultKey: 'name',
+  });
+
+  const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -128,9 +153,11 @@ export default function Impressoras() {
           <h1 className="text-2xl font-bold text-slate-800">Impressoras</h1>
           <p className="text-slate-500 mt-1">{printers.length} impressoras cadastradas</p>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-          <Plus className="h-4 w-4" /> Nova Impressora
-        </button>
+        {isAdmin && (
+          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <Plus className="h-4 w-4" /> Nova Impressora
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200">
@@ -150,13 +177,21 @@ export default function Impressoras() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50">
-                    <th className="text-left p-3 pl-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Setor / Local</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">IP</th>
-                    <th className="text-center p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contador</th>
-                    <th className="text-center p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Toner</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>
+                    <SortableTh label="Nome" sortKey="name" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} className="pl-4" />
+                    <SortableTh label="Setor / Local" sortKey="sector" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    {isAdmin && (
+                      <SortableTh label="IP" sortKey="ip" align="left"
+                        currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    )}
+                    <SortableTh label="Contador" sortKey="counter" align="center"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    <SortableTh label="Toner" sortKey="toner" align="center"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    <SortableTh label="Status" sortKey="status" align="left"
+                      currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    {isAdmin && <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -185,16 +220,18 @@ export default function Impressoras() {
                             <span className="text-sm text-slate-300">—</span>
                           )}
                         </td>
-                        <td className="p-3 text-sm font-mono">
-                          {printer.ip_address ? (
-                            <a href={`http://${printer.ip_address}`} target="_blank" rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors">
-                              {printer.ip_address}
-                            </a>
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
-                        </td>
+                        {isAdmin && (
+                          <td className="p-3 text-sm font-mono">
+                            {printer.ip_address ? (
+                              <a href={`http://${printer.ip_address}`} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 hover:underline transition-colors">
+                                {printer.ip_address}
+                              </a>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+                        )}
                         <td className="p-3 text-center">
                           {reading ? (
                             <span className="text-sm font-medium text-slate-700 tabular-nums">{reading.page_count.toLocaleString('pt-BR')}</span>
@@ -244,32 +281,34 @@ export default function Impressoras() {
                             printer.active ? 'bg-green-50 text-green-700 ring-1 ring-green-600/10' : 'bg-red-50 text-red-700 ring-1 ring-red-600/10'
                           }`}>{printer.active ? 'Ativa' : 'Inativa'}</span>
                         </td>
-                        <td className="p-3 pr-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {printer.ip_address && (
-                              <button onClick={() => handleTestSnmp(printer.id)}
-                                className="p-1.5 rounded-md text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors" title="Testar SNMP">
-                                <Wifi className="h-3.5 w-3.5" />
+                        {isAdmin && (
+                          <td className="p-3 pr-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {printer.ip_address && (
+                                <button onClick={() => handleTestSnmp(printer.id)}
+                                  className="p-1.5 rounded-md text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors" title="Testar SNMP">
+                                  <Wifi className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              <button onClick={() => openEdit(printer)} className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Editar">
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
-                            )}
-                            <button onClick={() => openEdit(printer)} className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Editar">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button onClick={() => handleDelete(printer.id)} className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Excluir">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
+                              <button onClick={() => handleDelete(printer.id)} className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Excluir">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
                   {paginated.length === 0 && (
-                    <tr><td colSpan={7} className="p-12 text-center text-slate-400">Nenhuma impressora encontrada</td></tr>
+                    <tr><td colSpan={isAdmin ? 7 : 5} className="p-12 text-center text-slate-400">Nenhuma impressora encontrada</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <Pagination currentPage={page} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+            <Pagination currentPage={page} totalItems={sortedData.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
           </>
         )}
       </div>

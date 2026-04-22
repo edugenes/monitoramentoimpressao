@@ -8,16 +8,33 @@ import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
 import ProgressBar from '@/components/ProgressBar';
 import Pagination from '@/components/Pagination';
-import { Plus, KeyRound, Search, Filter } from 'lucide-react';
+import SortableTh from '@/components/SortableTh';
+import { useAuth } from '@/contexts/AuthContext';
+import { Plus, KeyRound, Search, Filter, ArrowUpDown } from 'lucide-react';
 
-const PAGE_SIZE = 12;
+type SortBy =
+  | 'name-asc'
+  | 'name-desc'
+  | 'sector-asc'
+  | 'sector-desc'
+  | 'usage-desc'
+  | 'usage-asc'
+  | 'pct-desc'
+  | 'pct-asc'
+  | 'limit-desc'
+  | 'limit-asc';
+
+const PAGE_SIZE_OPTIONS = [12, 25, 50, 100, 9999] as const;
 
 export default function Cotas() {
+  const { isAdmin } = useAuth();
   const [quotas, setQuotas] = useState<Quota[]>([]);
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [sectorFilter, setSectorFilter] = useState('');
   const [printerFilter, setPrinterFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState<SortBy>('name-asc');
+  const [pageSize, setPageSize] = useState<number>(12);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -50,7 +67,7 @@ export default function Cotas() {
   }, []).sort((a, b) => a.name.localeCompare(b.name));
 
   useEffect(() => { fetchData(true); }, [fetchData]);
-  useEffect(() => { setPage(1); }, [search, sectorFilter, printerFilter, statusFilter]);
+  useEffect(() => { setPage(1); }, [search, sectorFilter, printerFilter, statusFilter, sortBy, pageSize]);
 
   usePolling(() => fetchData(false), { intervalMs: 15000, enabled: modalType === null });
 
@@ -64,17 +81,56 @@ export default function Cotas() {
     return Math.round((q.current_usage / limit) * 100);
   }
 
-  const filtered = quotas.filter((q) => {
-    if (search && !q.printer_name?.toLowerCase().includes(search.toLowerCase()) && !q.sector_name?.toLowerCase().includes(search.toLowerCase())) return false;
-    if (sectorFilter && q.sector_id !== parseInt(sectorFilter)) return false;
-    if (printerFilter && q.printer_id !== parseInt(printerFilter)) return false;
-    if (statusFilter === 'critical' && getPct(q) < 100) return false;
-    if (statusFilter === 'warning' && (getPct(q) < 80 || getPct(q) >= 100)) return false;
-    if (statusFilter === 'normal' && getPct(q) >= 80) return false;
-    return true;
-  });
+  // Integracao do dropdown com o SortableTh
+  const [currentSortKey, currentSortDir] = sortBy.split('-') as [
+    'name' | 'sector' | 'usage' | 'pct' | 'limit',
+    'asc' | 'desc'
+  ];
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  function handleSort(col: string) {
+    const textCols = ['name', 'sector'];
+    if (col === currentSortKey) {
+      const newDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+      setSortBy(`${col}-${newDir}` as SortBy);
+    } else {
+      const defaultDir = textCols.includes(col) ? 'asc' : 'desc';
+      setSortBy(`${col}-${defaultDir}` as SortBy);
+    }
+  }
+
+  const filtered = quotas
+    .filter((q) => {
+      if (search && !q.printer_name?.toLowerCase().includes(search.toLowerCase()) && !q.sector_name?.toLowerCase().includes(search.toLowerCase())) return false;
+      if (sectorFilter && q.sector_id !== parseInt(sectorFilter)) return false;
+      if (printerFilter && q.printer_id !== parseInt(printerFilter)) return false;
+      if (statusFilter === 'critical' && getPct(q) < 100) return false;
+      if (statusFilter === 'warning' && (getPct(q) < 80 || getPct(q) >= 100)) return false;
+      if (statusFilter === 'normal' && getPct(q) >= 80) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const nameA = a.printer_name || '';
+      const nameB = b.printer_name || '';
+      const sectorA = a.sector_name || '';
+      const sectorB = b.sector_name || '';
+      const cmpOptions: Intl.CollatorOptions = { numeric: true, sensitivity: 'base' };
+      switch (sortBy) {
+        case 'name-asc': return nameA.localeCompare(nameB, 'pt-BR', cmpOptions);
+        case 'name-desc': return nameB.localeCompare(nameA, 'pt-BR', cmpOptions);
+        case 'sector-asc': return sectorA.localeCompare(sectorB, 'pt-BR', cmpOptions) || nameA.localeCompare(nameB, 'pt-BR', cmpOptions);
+        case 'sector-desc': return sectorB.localeCompare(sectorA, 'pt-BR', cmpOptions) || nameA.localeCompare(nameB, 'pt-BR', cmpOptions);
+        case 'usage-desc': return b.current_usage - a.current_usage;
+        case 'usage-asc': return a.current_usage - b.current_usage;
+        case 'pct-desc': return getPct(b) - getPct(a);
+        case 'pct-asc': return getPct(a) - getPct(b);
+        case 'limit-desc': return getEffectiveLimit(b) - getEffectiveLimit(a);
+        case 'limit-asc': return getEffectiveLimit(a) - getEffectiveLimit(b);
+        default: return 0;
+      }
+    });
+
+  const effectivePageSize = pageSize >= 9999 ? filtered.length || 1 : pageSize;
+  const paginated = pageSize >= 9999 ? filtered : filtered.slice((page - 1) * effectivePageSize, page * effectivePageSize);
 
   const totalUsage = filtered.reduce((s, q) => s + q.current_usage, 0);
   const totalLimit = filtered.reduce((s, q) => s + getEffectiveLimit(q), 0);
@@ -108,9 +164,11 @@ export default function Cotas() {
           <h1 className="text-2xl font-bold text-slate-800">Cotas</h1>
           <p className="text-slate-500 mt-1">Gerencie as cotas de impressão por setor</p>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-          <Plus className="h-4 w-4" /> Nova Cota
-        </button>
+        {isAdmin && (
+          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <Plus className="h-4 w-4" /> Nova Cota
+          </button>
+        )}
       </div>
 
       {/* Resumo rapido */}
@@ -153,7 +211,7 @@ export default function Cotas() {
           <select value={printerFilter} onChange={(e) => setPrinterFilter(e.target.value)}
             className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Todas as impressoras</option>
-            {printers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+            {[...printers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { numeric: true })).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -161,6 +219,32 @@ export default function Cotas() {
             <option value="critical">Excedidas (100%+)</option>
             <option value="warning">Em alerta (80–99%)</option>
             <option value="normal">Normal (&lt;80%)</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 mt-4 mb-3">
+          <ArrowUpDown className="h-4 w-4 text-slate-400" />
+          <span className="text-sm font-medium text-slate-600">Ordenar e exibir</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}
+            className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="name-asc">Impressora: A → Z</option>
+            <option value="name-desc">Impressora: Z → A</option>
+            <option value="sector-asc">Setor: A → Z</option>
+            <option value="sector-desc">Setor: Z → A</option>
+            <option value="usage-desc">Uso: maior primeiro</option>
+            <option value="usage-asc">Uso: menor primeiro</option>
+            <option value="pct-desc">% cota: maior primeiro</option>
+            <option value="pct-asc">% cota: menor primeiro</option>
+            <option value="limit-desc">Limite: maior primeiro</option>
+            <option value="limit-asc">Limite: menor primeiro</option>
+          </select>
+          <select value={pageSize} onChange={(e) => setPageSize(parseInt(e.target.value))}
+            className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n >= 9999 ? 'Mostrar todas' : `${n} por página`}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -175,12 +259,19 @@ export default function Cotas() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50">
-                    <th className="text-left p-3 pl-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Impressora</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Setor</th>
-                    <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Limite</th>
-                    <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Uso</th>
-                    <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[160px]">Progresso</th>
-                    <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>
+                    <SortableTh label="Impressora" sortKey="name" align="left"
+                      currentKey={currentSortKey} currentDir={currentSortDir} onSortChange={handleSort}
+                      className="pl-4" />
+                    <SortableTh label="Setor" sortKey="sector" align="left"
+                      currentKey={currentSortKey} currentDir={currentSortDir} onSortChange={handleSort} />
+                    <SortableTh label="Limite" sortKey="limit" align="right"
+                      currentKey={currentSortKey} currentDir={currentSortDir} onSortChange={handleSort} />
+                    <SortableTh label="Uso" sortKey="usage" align="right"
+                      currentKey={currentSortKey} currentDir={currentSortDir} onSortChange={handleSort} />
+                    <SortableTh label="Progresso" sortKey="pct" align="left"
+                      currentKey={currentSortKey} currentDir={currentSortDir} onSortChange={handleSort}
+                      className="min-w-[160px]" />
+                    {isAdmin && <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -198,24 +289,26 @@ export default function Cotas() {
                         </td>
                         <td className="p-3 text-sm text-slate-600 text-right tabular-nums">{quota.current_usage.toLocaleString('pt-BR')}</td>
                         <td className="p-3"><ProgressBar percentage={pct} /></td>
-                        <td className="p-3 pr-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button onClick={() => openRelease(quota)}
-                              className="flex items-center gap-1 px-2.5 py-1 text-xs bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100 transition-colors">
-                              <KeyRound className="h-3 w-3" /> Liberar
-                            </button>
-                          </div>
-                        </td>
+                        {isAdmin && (
+                          <td className="p-3 pr-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button onClick={() => openRelease(quota)}
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100 transition-colors">
+                                <KeyRound className="h-3 w-3" /> Liberar
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
                   {paginated.length === 0 && (
-                    <tr><td colSpan={6} className="p-12 text-center text-slate-400">Nenhuma cota encontrada</td></tr>
+                    <tr><td colSpan={isAdmin ? 6 : 5} className="p-12 text-center text-slate-400">Nenhuma cota encontrada</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <Pagination currentPage={page} totalItems={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+            <Pagination currentPage={page} totalItems={filtered.length} pageSize={effectivePageSize} onPageChange={setPage} />
           </>
         )}
       </div>

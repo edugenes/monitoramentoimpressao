@@ -2,6 +2,8 @@
 
 Sistema web para controle de cotas de impressão por setor, com gestão de liberações e relatórios.
 
+**Explicação em linguagem simples e sugestão de roteiro para apresentação:** [APRESENTACAO-E-GUIA-LEIGOS.md](APRESENTACAO-E-GUIA-LEIGOS.md) · **Documentação técnica:** [DOCUMENTACAO.md](DOCUMENTACAO.md) · **Instalação em servidor 24/7:** [SERVIDOR.md](SERVIDOR.md).
+
 ## Funcionalidades
 
 - Cadastro de impressoras e setores

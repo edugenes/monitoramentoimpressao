@@ -6,6 +6,9 @@ import { SnmpReading, SnmpStatus, MonthlySnapshot, Printer } from '@/lib/types';
 import { formatDateTime, getCurrentPeriod, getMonthOptions } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Pagination from '@/components/Pagination';
+import SortableTh from '@/components/SortableTh';
+import { useTableSort } from '@/hooks/useTableSort';
+import { useAuth } from '@/contexts/AuthContext';
 import { Activity, Play, Droplets, RefreshCw, Clock } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,6 +17,7 @@ import {
 const PAGE_SIZE = 15;
 
 export default function Monitoramento() {
+  const { isAdmin } = useAuth();
   const [tab, setTab] = useState<'live' | 'snapshots'>('live');
   const [status, setStatus] = useState<SnmpStatus | null>(null);
   const [latestReadings, setLatestReadings] = useState<SnmpReading[]>([]);
@@ -84,7 +88,45 @@ export default function Monitoramento() {
   }
 
   const liveData = tab === 'live' ? latestReadings : [];
-  const paginatedLive = liveData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const {
+    sortKey: liveKey,
+    sortDir: liveDir,
+    handleSort: handleLiveSort,
+    sortedData: sortedLive,
+  } = useTableSort(liveData, {
+    columns: {
+      printer: { key: 'printer', getter: (r) => r.printer_name || '' },
+      ip: { key: 'ip', getter: (r) => r.ip_address || '' },
+      page_count: { key: 'page_count', getter: (r) => r.page_count, defaultDir: 'desc' },
+      toner: {
+        key: 'toner',
+        getter: (r) => (r.toner_black != null ? r.toner_black : r.toner_level ?? null),
+        defaultDir: 'asc',
+      },
+      status: { key: 'status', getter: (r) => r.status || '' },
+      created_at: { key: 'created_at', getter: (r) => r.created_at || '', defaultDir: 'desc' },
+    },
+    defaultKey: 'printer',
+  });
+
+  const {
+    sortKey: snapKey,
+    sortDir: snapDir,
+    handleSort: handleSnapSort,
+    sortedData: sortedSnapshots,
+  } = useTableSort(snapshots, {
+    columns: {
+      printer: { key: 'printer', getter: (s) => s.printer_name || '' },
+      start: { key: 'start', getter: (s) => s.start_count, defaultDir: 'desc' },
+      end: { key: 'end', getter: (s) => s.end_count, defaultDir: 'desc' },
+      total: { key: 'total', getter: (s) => s.total_pages, defaultDir: 'desc' },
+    },
+    defaultKey: 'total',
+    defaultDir: 'desc',
+  });
+
+  const paginatedLive = sortedLive.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const chartData = printerHistory.map(r => ({
     data: r.created_at.slice(5, 16).replace('-', '/'),
@@ -99,14 +141,16 @@ export default function Monitoramento() {
           <h1 className="text-2xl font-bold text-slate-800">Monitoramento SNMP</h1>
           <p className="text-slate-500 mt-1">Leitura automática de contadores e status das impressoras</p>
         </div>
-        <button
-          onClick={handleCollect}
-          disabled={collecting}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
-        >
-          {collecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {collecting ? 'Coletando...' : 'Coletar Agora'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={handleCollect}
+            disabled={collecting}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
+          >
+            {collecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {collecting ? 'Coletando...' : 'Coletar Agora'}
+          </button>
+        )}
       </div>
 
       {/* Status cards */}
@@ -160,7 +204,7 @@ export default function Monitoramento() {
           >
             <option value="">Selecione uma impressora</option>
             {printers.map(p => (
-              <option key={p.id} value={p.id}>{p.name} ({p.ip_address})</option>
+              <option key={p.id} value={p.id}>{isAdmin ? `${p.name} (${p.ip_address})` : p.name}</option>
             ))}
           </select>
         </div>
@@ -192,12 +236,20 @@ export default function Monitoramento() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/50">
-                      <th className="text-left p-3 pl-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Impressora</th>
-                      <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">IP</th>
-                      <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contador Total</th>
-                      <th className="text-center p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Toner</th>
-                      <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Última Leitura</th>
+                      <SortableTh label="Impressora" sortKey="printer" align="left"
+                        currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} className="pl-4" />
+                      {isAdmin && (
+                        <SortableTh label="IP" sortKey="ip" align="left"
+                          currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} />
+                      )}
+                      <SortableTh label="Contador Total" sortKey="page_count" align="right"
+                        currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} />
+                      <SortableTh label="Toner" sortKey="toner" align="center"
+                        currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} />
+                      <SortableTh label="Status" sortKey="status" align="left"
+                        currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} />
+                      <SortableTh label="Última Leitura" sortKey="created_at" align="left"
+                        currentKey={liveKey} currentDir={liveDir} onSortChange={handleLiveSort} />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -209,7 +261,7 @@ export default function Monitoramento() {
                             <span className="text-sm font-medium text-slate-800">{r.printer_name}</span>
                           </div>
                         </td>
-                        <td className="p-3 text-sm text-slate-500 font-mono">{r.ip_address}</td>
+                        {isAdmin && <td className="p-3 text-sm text-slate-500 font-mono">{r.ip_address}</td>}
                         <td className="p-3 text-sm font-medium text-slate-700 text-right tabular-nums">{r.page_count.toLocaleString('pt-BR')}</td>
                         <td className="p-3">
                           {r.toner_cyan != null ? (
@@ -255,14 +307,14 @@ export default function Monitoramento() {
                       </tr>
                     ))}
                     {paginatedLive.length === 0 && (
-                      <tr><td colSpan={6} className="p-12 text-center text-slate-400">
+                      <tr><td colSpan={isAdmin ? 6 : 5} className="p-12 text-center text-slate-400">
                         Nenhuma leitura SNMP ainda. Clique em &quot;Coletar Agora&quot; para iniciar.
                       </td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <Pagination currentPage={page} totalItems={liveData.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+              <Pagination currentPage={page} totalItems={sortedLive.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
             </>
           )}
         </div>
@@ -284,14 +336,18 @@ export default function Monitoramento() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50">
-                    <th className="text-left p-3 pl-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Impressora</th>
-                    <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contador Início</th>
-                    <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contador Fim</th>
-                    <th className="text-right p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Páginas</th>
+                    <SortableTh label="Impressora" sortKey="printer" align="left"
+                      currentKey={snapKey} currentDir={snapDir} onSortChange={handleSnapSort} className="pl-4" />
+                    <SortableTh label="Contador Início" sortKey="start" align="right"
+                      currentKey={snapKey} currentDir={snapDir} onSortChange={handleSnapSort} />
+                    <SortableTh label="Contador Fim" sortKey="end" align="right"
+                      currentKey={snapKey} currentDir={snapDir} onSortChange={handleSnapSort} />
+                    <SortableTh label="Total Páginas" sortKey="total" align="right"
+                      currentKey={snapKey} currentDir={snapDir} onSortChange={handleSnapSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {snapshots.map((s) => (
+                  {sortedSnapshots.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-3 pl-4 text-sm font-medium text-slate-800">{s.printer_name}</td>
                       <td className="p-3 text-sm text-slate-600 text-right tabular-nums">{s.start_count.toLocaleString('pt-BR')}</td>
@@ -301,7 +357,7 @@ export default function Monitoramento() {
                       </td>
                     </tr>
                   ))}
-                  {snapshots.length === 0 && (
+                  {sortedSnapshots.length === 0 && (
                     <tr><td colSpan={4} className="p-12 text-center text-slate-400">
                       Nenhum snapshot para este período. Os snapshots são gerados automaticamente no fechamento do mês.
                     </td></tr>

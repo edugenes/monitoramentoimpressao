@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ReportBySector, ReportByPrinter, Release } from '@/lib/types';
 import { formatDateTime, getCurrentPeriod, getMonthOptions, formatPeriod } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
-import { Download, FileText } from 'lucide-react';
+import SortableTh from '@/components/SortableTh';
+import { useTableSort } from '@/hooks/useTableSort';
+import { Download } from 'lucide-react';
+import { buildPrintReport } from '@/lib/buildPrintReport';
 import {
   BarChart,
   Bar,
@@ -25,7 +28,6 @@ export default function Relatorios() {
   const [printerData, setPrinterData] = useState<ReportByPrinter[]>([]);
   const [releasesData, setReleasesData] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
-  const printRef = useRef<HTMLDivElement>(null);
   const monthOptions = getMonthOptions();
 
   const weekParam = week > 0 ? `&week=${week}` : '';
@@ -68,49 +70,88 @@ export default function Relatorios() {
 
   usePolling(() => fetchReport(false), { intervalMs: 60000 });
 
+  const {
+    sortKey: sectorSortKey,
+    sortDir: sectorSortDir,
+    handleSort: handleSectorSort,
+    sortedData: sortedSectors,
+  } = useTableSort(sectorData, {
+    columns: {
+      sector_name: { key: 'sector_name', getter: (s) => s.sector_name || '' },
+      total_limit: { key: 'total_limit', getter: (s) => parseFloat(s.total_limit) || 0, defaultDir: 'desc' },
+      total_usage: { key: 'total_usage', getter: (s) => parseFloat(s.total_usage) || 0, defaultDir: 'desc' },
+      usage_percentage: { key: 'usage_percentage', getter: (s) => parseFloat(s.usage_percentage) || 0, defaultDir: 'desc' },
+    },
+    defaultKey: 'usage_percentage',
+    defaultDir: 'desc',
+  });
+
+  const {
+    sortKey: printerSortKey,
+    sortDir: printerSortDir,
+    handleSort: handlePrinterSort,
+    sortedData: sortedPrinters,
+  } = useTableSort(printerData, {
+    columns: {
+      printer_name: { key: 'printer_name', getter: (p) => p.printer_name || '' },
+      model: { key: 'model', getter: (p) => p.model || '' },
+      total_limit: { key: 'total_limit', getter: (p) => parseFloat(p.total_limit) || 0, defaultDir: 'desc' },
+      total_usage: { key: 'total_usage', getter: (p) => parseFloat(p.total_usage) || 0, defaultDir: 'desc' },
+      usage_percentage: { key: 'usage_percentage', getter: (p) => parseFloat(p.usage_percentage) || 0, defaultDir: 'desc' },
+    },
+    defaultKey: 'usage_percentage',
+    defaultDir: 'desc',
+  });
+
+  const {
+    sortKey: releasesSortKey,
+    sortDir: releasesSortDir,
+    handleSort: handleReleasesSort,
+    sortedData: sortedReleases,
+  } = useTableSort(releasesData, {
+    columns: {
+      created_at: { key: 'created_at', getter: (r) => r.created_at || '', defaultDir: 'desc' },
+      printer_name: { key: 'printer_name', getter: (r) => r.printer_name || '' },
+      sector_name: { key: 'sector_name', getter: (r) => r.sector_name || '' },
+      amount: { key: 'amount', getter: (r) => r.amount, defaultDir: 'desc' },
+      reason: { key: 'reason', getter: (r) => r.reason || '' },
+      released_by: { key: 'released_by', getter: (r) => r.released_by || '' },
+    },
+    defaultKey: 'created_at',
+    defaultDir: 'desc',
+  });
+
   function handlePrint() {
-    const content = printRef.current;
-    if (!content) return;
+    const html = buildPrintReport({
+      tab,
+      periodLabel: formatPeriod(period),
+      weekLabel: getWeekLabel(),
+      sectorData,
+      printerData,
+      releasesData,
+    });
 
     const win = window.open('', '_blank');
     if (!win) return;
 
-    win.document.write(`
-      <html>
-        <head>
-          <title>Relatório de Impressão - ${formatPeriod(period)}${week > 0 ? ` - ${getWeekLabel()}` : ''}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-            h1 { font-size: 24px; margin-bottom: 8px; }
-            h2 { font-size: 18px; color: #475569; margin-bottom: 24px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-            th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-            th { background: #f8fafc; font-weight: 600; font-size: 13px; color: #64748b; }
-            td { font-size: 14px; }
-            .right { text-align: right; }
-            .badge { 
-              display: inline-block; padding: 2px 8px; border-radius: 12px; 
-              font-size: 12px; font-weight: 500;
-            }
-            .badge-green { background: #dcfce7; color: #166534; }
-            .badge-yellow { background: #fef9c3; color: #854d0e; }
-            .badge-red { background: #fee2e2; color: #991b1b; }
-            .footer { margin-top: 32px; font-size: 12px; color: #94a3b8; text-align: center; }
-            @media print { body { padding: 20px; } }
-          </style>
-        </head>
-        <body>
-          <h1>Relatório de Controle de Impressão</h1>
-          <h2>${tab === 'sector' ? 'Por Setor' : tab === 'printer' ? 'Por Impressora' : 'Liberações'} - ${formatPeriod(period)}${week > 0 ? ` - ${getWeekLabel()}` : ''}</h2>
-          ${content.innerHTML}
-          <div class="footer">
-            Gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} - Sistema de Controle de Impressão
-          </div>
-        </body>
-      </html>
-    `);
+    win.document.open();
+    win.document.write(html);
     win.document.close();
-    win.print();
+
+    const trigger = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        // ignore
+      }
+    };
+
+    if (win.document.readyState === 'complete') {
+      setTimeout(trigger, 350);
+    } else {
+      win.addEventListener('load', () => setTimeout(trigger, 350));
+    }
   }
 
   const sectorChartData = sectorData.map((s) => ({
@@ -225,21 +266,25 @@ export default function Relatorios() {
             </div>
           )}
 
-          <div ref={printRef}>
+          <div>
             {tab === 'sector' && (
               <div className="bg-white rounded-xl shadow-sm border border-slate-200">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200">
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Setor</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">Limite</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">Uso</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">%</th>
+                      <SortableTh label="Setor" sortKey="sector_name" align="left"
+                        currentKey={sectorSortKey} currentDir={sectorSortDir} onSortChange={handleSectorSort} />
+                      <SortableTh label="Limite" sortKey="total_limit" align="right"
+                        currentKey={sectorSortKey} currentDir={sectorSortDir} onSortChange={handleSectorSort} />
+                      <SortableTh label="Uso" sortKey="total_usage" align="right"
+                        currentKey={sectorSortKey} currentDir={sectorSortDir} onSortChange={handleSectorSort} />
+                      <SortableTh label="%" sortKey="usage_percentage" align="right"
+                        currentKey={sectorSortKey} currentDir={sectorSortDir} onSortChange={handleSectorSort} />
                       <th className="text-left p-4 text-sm font-medium text-slate-500">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sectorData.map((s) => {
+                    {sortedSectors.map((s) => {
                       const pct = parseFloat(s.usage_percentage);
                       const badge = getStatusBadge(pct);
                       return (
@@ -260,7 +305,7 @@ export default function Relatorios() {
                         </tr>
                       );
                     })}
-                    {sectorData.length === 0 && (
+                    {sortedSectors.length === 0 && (
                       <tr>
                         <td colSpan={5} className="p-8 text-center text-slate-400">Nenhum dado para este período</td>
                       </tr>
@@ -275,16 +320,21 @@ export default function Relatorios() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200">
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Impressora</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Modelo</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">Limite</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">Uso</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">%</th>
+                      <SortableTh label="Impressora" sortKey="printer_name" align="left"
+                        currentKey={printerSortKey} currentDir={printerSortDir} onSortChange={handlePrinterSort} />
+                      <SortableTh label="Modelo" sortKey="model" align="left"
+                        currentKey={printerSortKey} currentDir={printerSortDir} onSortChange={handlePrinterSort} />
+                      <SortableTh label="Limite" sortKey="total_limit" align="right"
+                        currentKey={printerSortKey} currentDir={printerSortDir} onSortChange={handlePrinterSort} />
+                      <SortableTh label="Uso" sortKey="total_usage" align="right"
+                        currentKey={printerSortKey} currentDir={printerSortDir} onSortChange={handlePrinterSort} />
+                      <SortableTh label="%" sortKey="usage_percentage" align="right"
+                        currentKey={printerSortKey} currentDir={printerSortDir} onSortChange={handlePrinterSort} />
                       <th className="text-left p-4 text-sm font-medium text-slate-500">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {printerData.map((p) => {
+                    {sortedPrinters.map((p) => {
                       const pct = parseFloat(p.usage_percentage);
                       const badge = getStatusBadge(pct);
                       return (
@@ -306,7 +356,7 @@ export default function Relatorios() {
                         </tr>
                       );
                     })}
-                    {printerData.length === 0 && (
+                    {sortedPrinters.length === 0 && (
                       <tr>
                         <td colSpan={6} className="p-8 text-center text-slate-400">Nenhum dado para este período</td>
                       </tr>
@@ -321,16 +371,22 @@ export default function Relatorios() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200">
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Data/Hora</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Impressora</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Setor</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-500">Páginas</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Motivo</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-500">Liberado por</th>
+                      <SortableTh label="Data/Hora" sortKey="created_at" align="left"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
+                      <SortableTh label="Impressora" sortKey="printer_name" align="left"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
+                      <SortableTh label="Setor" sortKey="sector_name" align="left"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
+                      <SortableTh label="Páginas" sortKey="amount" align="right"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
+                      <SortableTh label="Motivo" sortKey="reason" align="left"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
+                      <SortableTh label="Liberado por" sortKey="released_by" align="left"
+                        currentKey={releasesSortKey} currentDir={releasesSortDir} onSortChange={handleReleasesSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {releasesData.map((r: any) => (
+                    {sortedReleases.map((r) => (
                       <tr key={r.id} className="border-b border-slate-100">
                         <td className="p-4 text-slate-500 text-sm">{formatDateTime(r.created_at)}</td>
                         <td className="p-4 font-medium text-slate-800">{r.printer_name}</td>
@@ -344,7 +400,7 @@ export default function Relatorios() {
                         <td className="p-4 text-slate-600 text-sm">{r.released_by || '-'}</td>
                       </tr>
                     ))}
-                    {releasesData.length === 0 && (
+                    {sortedReleases.length === 0 && (
                       <tr>
                         <td colSpan={6} className="p-8 text-center text-slate-400">Nenhuma liberação neste período</td>
                       </tr>

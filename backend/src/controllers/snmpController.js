@@ -1,10 +1,13 @@
 const snmpService = require('../services/snmpService');
 const printerService = require('../services/printerService');
+const alertService = require('../services/alertService');
+const { getSectorFilter } = require('../middleware/auth');
 
 async function collect(req, res, next) {
   try {
     const results = await snmpService.collectAll();
-    res.json(results);
+    const alertResult = alertService.generateAlerts();
+    res.json({ ...results, alerts: alertResult });
   } catch (err) {
     next(err);
   }
@@ -35,7 +38,16 @@ function getReadings(req, res, next) {
 
 function getLatestReadings(req, res, next) {
   try {
-    const readings = snmpService.getLatestReadings();
+    const sectorIds = getSectorFilter(req);
+    let readings = snmpService.getLatestReadings();
+    if (sectorIds && sectorIds.length > 0) {
+      const printers = printerService.getAll(sectorIds);
+      const printerIds = new Set(printers.map(p => p.id));
+      readings = readings.filter(r => printerIds.has(r.printer_id));
+    }
+    if (req.user && req.user.role !== 'admin') {
+      readings = readings.map(({ ip_address, ...rest }) => rest);
+    }
     res.json(readings);
   } catch (err) {
     next(err);

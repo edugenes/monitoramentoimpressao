@@ -1,6 +1,16 @@
 const db = require('../config/db');
 
-function getAll() {
+function getAll(sectorIds) {
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT p.*, s.name as sector_name
+      FROM printers p
+      LEFT JOIN sectors s ON p.sector_id = s.id
+      WHERE p.sector_id IN (${placeholders})
+      ORDER BY p.name
+    `).all(...sectorIds);
+  }
   return db.prepare(`
     SELECT p.*, s.name as sector_name
     FROM printers p

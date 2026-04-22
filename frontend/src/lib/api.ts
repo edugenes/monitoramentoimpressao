@@ -4,11 +4,28 @@ const API_URL =
     ? `http://${window.location.hostname}:3001/api`
     : 'http://localhost:3001/api');
 
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('auth_token');
+}
+
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(`${API_URL}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
+
+  if (res.status === 401) {
+    if (typeof window !== 'undefined' && !endpoint.includes('/auth/login')) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
+      window.location.href = '/login';
+    }
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Erro desconhecido' }));

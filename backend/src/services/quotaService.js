@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-function getAll(filters = {}) {
+function getAll(filters = {}, sectorIds) {
   let query = `
     SELECT q.*, p.name as printer_name, s.name as sector_name,
       COALESCE((SELECT SUM(amount) FROM releases WHERE quota_id = q.id), 0) as total_released
@@ -10,6 +10,12 @@ function getAll(filters = {}) {
     WHERE 1=1
   `;
   const params = [];
+
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    query += ` AND q.sector_id IN (${placeholders})`;
+    params.push(...sectorIds);
+  }
 
   if (filters.printer_id) {
     query += ' AND q.printer_id = ?';

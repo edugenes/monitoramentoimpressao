@@ -136,3 +136,58 @@ export interface MonthlySnapshot {
   printer_name?: string;
   created_at: string;
 }
+
+export interface User {
+  id: number;
+  username: string;
+  name: string;
+  role: 'admin' | 'gestor';
+  active: boolean;
+  created_at: string;
+  sectors: { sector_id: number; sector_name: string }[];
+}
+
+export type AlertType =
+  | 'TONER_CRITICAL'
+  | 'TONER_LOW'
+  | 'PRINTER_OFFLINE'
+  | 'PRINTER_ERROR'
+  | 'QUOTA_EXCEEDED'
+  | 'QUOTA_WARNING';
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
+
+export interface Alert {
+  id: number;
+  printer_id: number | null;
+  printer_name: string | null;
+  sector_id: number | null;
+  sector_name: string | null;
+  type: AlertType;
+  severity: AlertSeverity;
+  message: string;
+  details: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  acknowledged: number;
+  acknowledged_by: number | null;
+  acknowledged_by_name: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface AlertCount {
+  total: number;
+  critical: number;
+  warning: number;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: {
+    id: number;
+    username: string;
+    name: string;
+    role: 'admin' | 'gestor';
+    sectors: number[];
+  };
+}

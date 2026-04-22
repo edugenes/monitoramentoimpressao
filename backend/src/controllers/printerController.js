@@ -1,6 +1,7 @@
 const printerService = require('../services/printerService');
 const snmpService = require('../services/snmpService');
 const db = require('../config/db');
+const { getSectorFilter } = require('../middleware/auth');
 
 function collectSnmpForPrinter(printer) {
   if (!printer.ip_address) return;
@@ -29,10 +30,20 @@ function collectSnmpForPrinter(printer) {
     .catch(() => {});
 }
 
+function sanitizeForUser(req, printer) {
+  if (!printer) return printer;
+  if (req.user && req.user.role !== 'admin') {
+    const { ip_address, snmp_community, ...rest } = printer;
+    return rest;
+  }
+  return printer;
+}
+
 function getAll(req, res, next) {
   try {
-    const printers = printerService.getAll();
-    res.json(printers);
+    const sectorIds = getSectorFilter(req);
+    const printers = printerService.getAll(sectorIds);
+    res.json(printers.map(p => sanitizeForUser(req, p)));
   } catch (err) {
     next(err);
   }
@@ -42,7 +53,7 @@ function getById(req, res, next) {
   try {
     const printer = printerService.getById(req.params.id);
     if (!printer) return res.status(404).json({ error: true, message: 'Impressora nao encontrada' });
-    res.json(printer);
+    res.json(sanitizeForUser(req, printer));
   } catch (err) {
     next(err);
   }

@@ -2,7 +2,22 @@ const snmp = require('net-snmp');
 const db = require('../config/db');
 
 const OIDS = {
-  pageCount: '1.3.6.1.2.1.43.10.2.1.4.1.1',
+  // Engine page count do Printer MIB (inclui calibracao, teste, duplex duplicado etc).
+  // Mantido como fallback e como referencia para validar os OIDs A4.
+  pageCountEngine: '1.3.6.1.2.1.43.10.2.1.4.1.1',
+
+  // OIDs HP que retornam o total A4 equivalente (igual ao exibido na interface web
+  // e cobrado pelo Simpress: Imprimir + Copiar + Fax em equivalente Carta/A4).
+  //
+  //  - A4_mono    funciona na linha HP LaserJet mono (E50145DN, E52645C, etc).
+  //  - A4_color   funciona na linha HP Color LaserJet multifuncional (X57945, X55745, E78, etc),
+  //               onde `16.4.1.1.2.0` significa outra coisa (ex: copy-only).
+  //
+  // A estrategia em readPageCount() e: tentar A4_mono, depois A4_color, e por fim engine.
+  // Escolhe o primeiro valor que nao seja "claramente errado" (<= 50% do engine).
+  pageCountA4Mono: '1.3.6.1.4.1.11.2.3.9.4.2.1.1.16.4.1.1.2.0',
+  pageCountA4Color: '1.3.6.1.4.1.11.2.3.9.4.2.1.1.16.1.38.13.26.0',
+
   tonerLevel: '1.3.6.1.2.1.43.11.1.1.9.1.1',
   tonerMaxLevel: '1.3.6.1.2.1.43.11.1.1.8.1.1',
   printerStatus: '1.3.6.1.2.1.25.3.5.1.1.1',
@@ -141,37 +156,69 @@ async function readColorToners(session) {
   return toners;
 }
 
+// Escolhe, entre os candidatos A4 e o engine, o valor "cobravel" mais confiavel.
+// Logica:
+//  - Se A4_mono esta razoavel (>= 50% do engine), usa.
+//  - Senao, se A4_color esta razoavel, usa.
+//  - Senao, fallback engine.
+// Retorna { value, source } onde source identifica qual OID foi usado.
+function chooseBestPageCount(valMono, valColor, valEngine) {
+  if (valEngine == null && valMono == null && valColor == null) return null;
+  const threshold = valEngine != null ? valEngine * 0.5 : 0;
+  if (valMono != null && valMono >= threshold) return { value: valMono, source: 'a4_mono' };
+  if (valColor != null && valColor >= threshold) return { value: valColor, source: 'a4_color' };
+  if (valEngine != null) return { value: valEngine, source: 'engine' };
+  if (valMono != null) return { value: valMono, source: 'a4_mono' };
+  if (valColor != null) return { value: valColor, source: 'a4_color' };
+  return null;
+}
+
 async function readPrinter(ip, community = 'public') {
   const session = snmp.createSession(ip, community, {
     timeout: SNMP_TIMEOUT,
     version: snmp.Version2c,
   });
+  session.on('error', (err) => {
+    console.warn(`[SNMP] Erro de sessão ${ip}:`, err.message);
+  });
 
   const result = { success: false, ip };
 
   try {
-    const essentialOids = [OIDS.pageCount, OIDS.printerStatus];
+    const counterOids = [OIDS.pageCountA4Mono, OIDS.pageCountA4Color, OIDS.pageCountEngine];
+    const essentialOids = [...counterOids, OIDS.printerStatus];
     const optionalOids = [OIDS.tonerLevel, OIDS.tonerMaxLevel, OIDS.colorCount, OIDS.monoCount];
 
     const res = await snmpGet(session, [...essentialOids, ...optionalOids]);
 
+    let valMono = null, valColor = null, valEngine = null;
+
     if (res.error) {
+      // Tenta so os essenciais
       const fallback = await snmpGet(session, essentialOids);
       if (fallback.error) {
-        const single = await snmpGet(session, [OIDS.pageCount]);
+        // Ultima tentativa: so o engine count
+        const single = await snmpGet(session, [OIDS.pageCountEngine]);
         if (single.error) {
           result.error = single.error;
           return result;
         }
-        const val = parseVarbindValue(single.varbinds[0]);
-        if (val != null) { result.pageCount = val; result.success = true; }
-        else { result.error = 'Contador de paginas nao disponivel'; }
+        valEngine = parseVarbindValue(single.varbinds[0]);
+        if (valEngine != null) {
+          result.pageCount = valEngine;
+          result.pageCountSource = 'engine';
+          result.success = true;
+        } else {
+          result.error = 'Contador de paginas nao disponivel';
+        }
         return result;
       }
       for (const vb of fallback.varbinds) {
         const val = parseVarbindValue(vb);
         if (val == null) continue;
-        if (vb.oid === OIDS.pageCount) result.pageCount = val;
+        if (vb.oid === OIDS.pageCountA4Mono) valMono = val;
+        else if (vb.oid === OIDS.pageCountA4Color) valColor = val;
+        else if (vb.oid === OIDS.pageCountEngine) valEngine = val;
         else if (vb.oid === OIDS.printerStatus) result.status = STATUS_MAP[val] || `status-${val}`;
       }
 
@@ -189,7 +236,9 @@ async function readPrinter(ip, community = 'public') {
       for (const vb of res.varbinds) {
         const val = parseVarbindValue(vb);
         if (val == null) continue;
-        if (vb.oid === OIDS.pageCount) result.pageCount = val;
+        if (vb.oid === OIDS.pageCountA4Mono) valMono = val;
+        else if (vb.oid === OIDS.pageCountA4Color) valColor = val;
+        else if (vb.oid === OIDS.pageCountEngine) valEngine = val;
         else if (vb.oid === OIDS.tonerLevel) result.tonerLevel = val;
         else if (vb.oid === OIDS.tonerMaxLevel) result.tonerMaxLevel = val;
         else if (vb.oid === OIDS.printerStatus) result.status = STATUS_MAP[val] || `status-${val}`;
@@ -198,8 +247,15 @@ async function readPrinter(ip, community = 'public') {
       }
     }
 
-    if (result.pageCount != null) result.success = true;
-    else result.error = 'Contador de paginas nao disponivel';
+    const chosen = chooseBestPageCount(valMono, valColor, valEngine);
+    if (chosen) {
+      result.pageCount = chosen.value;
+      result.pageCountSource = chosen.source;
+      result.pageCountRaw = { a4Mono: valMono, a4Color: valColor, engine: valEngine };
+      result.success = true;
+    } else {
+      result.error = 'Contador de paginas nao disponivel';
+    }
 
     if (result.tonerLevel != null && result.tonerMaxLevel && result.tonerMaxLevel > 0) {
       result.tonerPercent = Math.round((result.tonerLevel / result.tonerMaxLevel) * 100);
@@ -268,6 +324,10 @@ async function collectAll() {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const updateLastSuccess = db.prepare(`
+    UPDATE printers SET last_snmp_success = datetime('now','-3 hours') WHERE id = ?
+  `);
+
   for (const printer of printers) {
     const data = await readPrinter(printer.ip_address, printer.snmp_community || 'public');
 
@@ -284,6 +344,7 @@ async function collectAll() {
         data.tonerYellow ?? null,
         data.tonerBlack ?? null
       );
+      updateLastSuccess.run(printer.id);
       updateQuotaUsage(printer.id, data.pageCount);
       results.success++;
       results.details.push({ printer_id: printer.id, ip: printer.ip_address, ...data });

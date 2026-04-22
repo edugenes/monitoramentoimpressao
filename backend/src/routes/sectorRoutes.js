@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { body } = require('express-validator');
 const validate = require('../middleware/validate');
+const { requireAdmin } = require('../middleware/auth');
 const controller = require('../controllers/sectorController');
 
 const router = Router();
@@ -9,17 +10,19 @@ router.get('/', controller.getAll);
 router.get('/:id', controller.getById);
 
 router.post('/',
+  requireAdmin,
   body('name').notEmpty().withMessage('Nome e obrigatorio'),
   validate,
   controller.create
 );
 
 router.put('/:id',
+  requireAdmin,
   body('name').notEmpty().withMessage('Nome e obrigatorio'),
   validate,
   controller.update
 );
 
-router.delete('/:id', controller.remove);
+router.delete('/:id', requireAdmin, controller.remove);
 
 module.exports = router;

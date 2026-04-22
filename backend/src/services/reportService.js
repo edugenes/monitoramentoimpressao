@@ -48,7 +48,7 @@ function getUsageFromSnmp(period, week) {
   `).all(range.startDate, range.endDate, range.startDate, range.endDate);
 }
 
-function bySector(period, week) {
+function bySector(period, week, sectorIds) {
   if (week && week > 0) {
     const snmpData = getUsageFromSnmp(period, week);
     if (!snmpData) return [];
@@ -56,6 +56,7 @@ function bySector(period, week) {
     const sectorMap = {};
     for (const row of snmpData) {
       if (!row.sector_id) continue;
+      if (sectorIds && sectorIds.length > 0 && !sectorIds.includes(row.sector_id)) continue;
       if (!sectorMap[row.sector_id]) {
         sectorMap[row.sector_id] = {
           sector_id: row.sector_id,
@@ -94,6 +95,14 @@ function bySector(period, week) {
       .sort((a, b) => parseInt(b.total_usage) - parseInt(a.total_usage));
   }
 
+  let sectorFilter = '';
+  const params = [period];
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    sectorFilter = ` AND s.id IN (${placeholders})`;
+    params.push(...sectorIds);
+  }
+
   return db.prepare(`
     SELECT 
       s.id as sector_id,
@@ -107,13 +116,13 @@ function bySector(period, week) {
       END as usage_percentage
     FROM sectors s
     LEFT JOIN quotas q ON s.id = q.sector_id AND q.period = ?
-    WHERE s.active = 1
+    WHERE s.active = 1${sectorFilter}
     GROUP BY s.id, s.name
     ORDER BY total_usage DESC
-  `).all(period);
+  `).all(...params);
 }
 
-function byPrinter(period, week) {
+function byPrinter(period, week, sectorIds) {
   if (week && week > 0) {
     const snmpData = getUsageFromSnmp(period, week);
     if (!snmpData) return [];
@@ -125,6 +134,7 @@ function byPrinter(period, week) {
     for (const q of quotas) quotaMap[q.printer_id] = q.monthly_limit;
 
     return snmpData
+      .filter(row => !sectorIds || sectorIds.length === 0 || sectorIds.includes(row.sector_id))
       .map(row => {
         const usage = Math.max(row.week_usage, 0);
         const limit = quotaMap[row.printer_id] || 0;
@@ -143,6 +153,14 @@ function byPrinter(period, week) {
       .sort((a, b) => parseInt(b.total_usage) - parseInt(a.total_usage));
   }
 
+  let sectorFilter = '';
+  const params = [period];
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    sectorFilter = ` AND p.sector_id IN (${placeholders})`;
+    params.push(...sectorIds);
+  }
+
   return db.prepare(`
     SELECT 
       p.id as printer_id,
@@ -157,13 +175,21 @@ function byPrinter(period, week) {
       END as usage_percentage
     FROM printers p
     LEFT JOIN quotas q ON p.id = q.printer_id AND q.period = ?
-    WHERE p.active = 1
+    WHERE p.active = 1${sectorFilter}
     GROUP BY p.id, p.name, p.model
     ORDER BY total_usage DESC
-  `).all(period);
+  `).all(...params);
 }
 
-function releasesReport(period, week) {
+function releasesReport(period, week, sectorIds) {
+  let sectorFilter = '';
+  const extraParams = [];
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    sectorFilter = ` AND q.sector_id IN (${placeholders})`;
+    extraParams.push(...sectorIds);
+  }
+
   if (week && week > 0) {
     const range = getWeekRange(period, week);
     if (!range) return [];
@@ -176,9 +202,9 @@ function releasesReport(period, week) {
       JOIN quotas q ON r.quota_id = q.id
       JOIN printers p ON q.printer_id = p.id
       JOIN sectors s ON q.sector_id = s.id
-      WHERE q.period = ? AND r.created_at >= ? AND r.created_at <= ?
+      WHERE q.period = ? AND r.created_at >= ? AND r.created_at <= ?${sectorFilter}
       ORDER BY r.created_at DESC
-    `).all(period, range.startDate, range.endDate);
+    `).all(period, range.startDate, range.endDate, ...extraParams);
   }
 
   return db.prepare(`
@@ -189,43 +215,59 @@ function releasesReport(period, week) {
     JOIN quotas q ON r.quota_id = q.id
     JOIN printers p ON q.printer_id = p.id
     JOIN sectors s ON q.sector_id = s.id
-    WHERE q.period = ?
+    WHERE q.period = ?${sectorFilter}
     ORDER BY r.created_at DESC
-  `).all(period);
+  `).all(period, ...extraParams);
 }
 
-function summary(period) {
-  const sectorData = bySector(period);
-  const printerData = byPrinter(period);
+function summary(period, sectorIds) {
+  const sectorData = bySector(period, 0, sectorIds);
+  const printerData = byPrinter(period, 0, sectorIds);
+
+  let sectorFilter = '';
+  const extraParams = [];
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    sectorFilter = ` AND q.sector_id IN (${placeholders})`;
+    extraParams.push(...sectorIds);
+  }
 
   const totals = db.prepare(`
     SELECT 
       COALESCE(SUM(q.monthly_limit + COALESCE((SELECT SUM(amount) FROM releases WHERE quota_id = q.id), 0)), 0) as total_limit,
       COALESCE(SUM(q.current_usage), 0) as total_usage
-    FROM quotas q WHERE q.period = ?
-  `).get(period);
+    FROM quotas q WHERE q.period = ?${sectorFilter}
+  `).get(period, ...extraParams);
 
   const releasesCount = db.prepare(`
     SELECT COUNT(*) as total, COALESCE(SUM(r.amount), 0) as total_pages
     FROM releases r
     JOIN quotas q ON r.quota_id = q.id
-    WHERE q.period = ?
-  `).get(period);
+    WHERE q.period = ?${sectorFilter}
+  `).get(period, ...extraParams);
+
+  let printerFilter = '';
+  const printerParams = [];
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    printerFilter = ` AND sector_id IN (${placeholders})`;
+    printerParams.push(...sectorIds);
+  }
 
   const printersActive = db.prepare(
-    'SELECT COUNT(*) as total FROM printers WHERE active = 1'
-  ).get();
+    `SELECT COUNT(*) as total FROM printers WHERE active = 1${printerFilter}`
+  ).get(...printerParams);
 
-  const sectorsActive = db.prepare(
-    'SELECT COUNT(*) as total FROM sectors WHERE active = 1'
-  ).get();
+  const sectorsActive = sectorIds && sectorIds.length > 0
+    ? { total: sectorIds.length }
+    : db.prepare('SELECT COUNT(*) as total FROM sectors WHERE active = 1').get();
 
   const atLimit = db.prepare(`
     SELECT COUNT(*) as total FROM quotas q
     WHERE q.period = ?
       AND q.current_usage >= (q.monthly_limit + COALESCE((SELECT SUM(amount) FROM releases WHERE quota_id = q.id), 0))
-      AND q.monthly_limit > 0
-  `).get(period);
+      AND q.monthly_limit > 0${sectorFilter}
+  `).get(period, ...extraParams);
 
   return {
     period,

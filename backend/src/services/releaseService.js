@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-function getAll(filters = {}) {
+function getAll(filters = {}, sectorIds) {
   let query = `
     SELECT r.*, q.period, p.name as printer_name, s.name as sector_name
     FROM releases r
@@ -10,6 +10,12 @@ function getAll(filters = {}) {
     WHERE 1=1
   `;
   const params = [];
+
+  if (sectorIds && sectorIds.length > 0) {
+    const placeholders = sectorIds.map(() => '?').join(',');
+    query += ` AND q.sector_id IN (${placeholders})`;
+    params.push(...sectorIds);
+  }
 
   if (filters.period) {
     query += ' AND q.period = ?';

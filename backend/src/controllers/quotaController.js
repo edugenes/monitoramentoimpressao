@@ -1,4 +1,5 @@
 const quotaService = require('../services/quotaService');
+const { getSectorFilter } = require('../middleware/auth');
 
 function getAll(req, res, next) {
   try {
@@ -7,7 +8,8 @@ function getAll(req, res, next) {
       sector_id: req.query.sector_id,
       period: req.query.period,
     };
-    const quotas = quotaService.getAll(filters);
+    const sectorIds = getSectorFilter(req);
+    const quotas = quotaService.getAll(filters, sectorIds);
     res.json(quotas);
   } catch (err) {
     next(err);
