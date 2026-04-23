@@ -74,6 +74,19 @@ try {
   console.warn('Erro ao adicionar serial_number:', err.message);
 }
 
+// Migration 007 - printer_types e cotas gerais por tipo
+try {
+  runMigration('007_printer_types.sql');
+  if (!hasColumn('printers', 'type_id')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN type_id INTEGER REFERENCES printer_types(id)`);
+    console.log('Coluna type_id adicionada em printers.');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_printers_type ON printers(type_id)`);
+  console.log('Migration 007_printer_types OK.');
+} catch (err) {
+  console.warn('Migration 007_printer_types:', err.message);
+}
+
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!existing) {
   const hash = bcrypt.hashSync('admin123', 10);
@@ -86,4 +99,12 @@ if (!existing) {
 }
 
 db.close();
+
+try {
+  const { run: classificarPorTipo } = require('./classificar-impressoras-por-tipo');
+  classificarPorTipo();
+} catch (err) {
+  console.warn('Classificacao de impressoras por tipo falhou:', err.message);
+}
+
 console.log('Seed concluido.');

@@ -1,29 +1,33 @@
 const db = require('../config/db');
 
+const SELECT_PRINTER = `
+  SELECT p.*,
+         s.name  AS sector_name,
+         pt.code AS type_code,
+         pt.name AS type_name
+    FROM printers p
+    LEFT JOIN sectors s        ON p.sector_id = s.id
+    LEFT JOIN printer_types pt ON p.type_id   = pt.id
+`;
+
 function getAll(sectorIds) {
   if (sectorIds && sectorIds.length > 0) {
     const placeholders = sectorIds.map(() => '?').join(',');
     return db.prepare(`
-      SELECT p.*, s.name as sector_name
-      FROM printers p
-      LEFT JOIN sectors s ON p.sector_id = s.id
+      ${SELECT_PRINTER}
       WHERE p.sector_id IN (${placeholders})
       ORDER BY p.name
     `).all(...sectorIds);
   }
   return db.prepare(`
-    SELECT p.*, s.name as sector_name
-    FROM printers p
-    LEFT JOIN sectors s ON p.sector_id = s.id
+    ${SELECT_PRINTER}
     ORDER BY p.name
   `).all();
 }
 
 function getById(id) {
   return db.prepare(`
-    SELECT p.*, s.name as sector_name
-    FROM printers p
-    LEFT JOIN sectors s ON p.sector_id = s.id
+    ${SELECT_PRINTER}
     WHERE p.id = ?
   `).get(id);
 }

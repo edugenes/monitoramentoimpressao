@@ -9,6 +9,38 @@ export interface Printer {
   snmp_community: string | null;
   active: boolean;
   created_at: string;
+  serial_number?: string | null;
+  type_id?: number | null;
+  type_code?: PrinterTypeCode | null;
+  type_name?: string | null;
+}
+
+export type PrinterTypeCode =
+  | 'MONOCROMATICA'
+  | 'MULTIFUNCIONAL_MONO'
+  | 'MULTIFUNCIONAL_COLOR';
+
+export interface PrinterType {
+  id: number;
+  code: PrinterTypeCode;
+  name: string;
+  monthly_pool: number;
+  color_only: number;
+  printer_count: number;
+}
+
+export interface PrinterTypePoolStatus {
+  type_id: number;
+  code: PrinterTypeCode;
+  name: string;
+  color_only: number;
+  printer_count: number;
+  pool_total: number;
+  usage_total: number;
+  releases_total: number;
+  remaining: number;
+  usage_pct: number;
+  period: string;
 }
 
 export interface Sector {

@@ -15,6 +15,7 @@ const { authenticate, requireAdmin } = require('./middleware/auth');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const printerRoutes = require('./routes/printerRoutes');
+const printerTypeRoutes = require('./routes/printerTypeRoutes');
 const sectorRoutes = require('./routes/sectorRoutes');
 const quotaRoutes = require('./routes/quotaRoutes');
 const releaseRoutes = require('./routes/releaseRoutes');
@@ -38,6 +39,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 
 app.use('/api/printers', authenticate, printerRoutes);
+app.use('/api/printer-types', authenticate, printerTypeRoutes);
 app.use('/api/sectors', authenticate, sectorRoutes);
 app.use('/api/quotas', authenticate, quotaRoutes);
 app.use('/api/releases', authenticate, releaseRoutes);

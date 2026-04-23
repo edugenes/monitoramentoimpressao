@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { ReportBySector, ReportByPrinter, Release } from '@/lib/types';
+import { ReportBySector, ReportByPrinter, Release, PrinterTypePoolStatus } from '@/lib/types';
 import { formatDateTime, getCurrentPeriod, getMonthOptions, formatPeriod } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import SortableTh from '@/components/SortableTh';
@@ -27,6 +27,7 @@ export default function Relatorios() {
   const [sectorData, setSectorData] = useState<ReportBySector[]>([]);
   const [printerData, setPrinterData] = useState<ReportByPrinter[]>([]);
   const [releasesData, setReleasesData] = useState<Release[]>([]);
+  const [poolsData, setPoolsData] = useState<PrinterTypePoolStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const monthOptions = getMonthOptions();
 
@@ -49,6 +50,11 @@ export default function Relatorios() {
   const fetchReport = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
+      const poolsPromise = api
+        .get<PrinterTypePoolStatus[]>(`/printer-types/status?period=${period}`)
+        .then((d) => setPoolsData(d))
+        .catch(() => {});
+
       if (tab === 'sector') {
         const data = await api.get<ReportBySector[]>(`/reports/by-sector?period=${period}${weekParam}`);
         setSectorData(data);
@@ -59,6 +65,7 @@ export default function Relatorios() {
         const data = await api.get<Release[]>(`/reports/releases?period=${period}${weekParam}`);
         setReleasesData(data);
       }
+      await poolsPromise;
     } catch {
       console.error('Erro ao carregar relatório');
     } finally {
@@ -129,6 +136,7 @@ export default function Relatorios() {
       sectorData,
       printerData,
       releasesData,
+      pools: poolsData,
     });
 
     const win = window.open('', '_blank');

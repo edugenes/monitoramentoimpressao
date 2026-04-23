@@ -1,4 +1,4 @@
-import { ReportBySector, ReportByPrinter, Release } from './types';
+import { ReportBySector, ReportByPrinter, Release, PrinterTypePoolStatus } from './types';
 import { formatDateTime } from './dateUtils';
 
 type Tab = 'sector' | 'printer' | 'releases';
@@ -10,6 +10,7 @@ interface BuildOpts {
   sectorData: ReportBySector[];
   printerData: ReportByPrinter[];
   releasesData: Release[];
+  pools?: PrinterTypePoolStatus[];
 }
 
 const fmtInt = (n: number) =>
@@ -468,6 +469,65 @@ function renderTable(rows: Row[], label: string, showExtra: boolean): string {
   `;
 }
 
+function renderPools(pools: PrinterTypePoolStatus[]): string {
+  if (!pools || pools.length === 0) return '';
+  const totalPool = pools.reduce((a, p) => a + p.pool_total, 0);
+  const totalConsumed = pools.reduce((a, p) => a + p.usage_total + p.releases_total, 0);
+  const totalReleases = pools.reduce((a, p) => a + p.releases_total, 0);
+  const totalPct = totalPool > 0 ? (totalConsumed / totalPool) * 100 : 0;
+
+  return `
+    <section class="section avoid-break">
+      <div class="section-header">
+        <h2>Cotas contratadas por tipo de impressora</h2>
+        <span class="subtitle">Pool mensal acordado com a Simpress</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th class="num">Impressoras</th>
+            <th class="num">Cota contratada</th>
+            <th class="num">Uso no mes</th>
+            <th class="num">Liberacoes</th>
+            <th class="num">Saldo</th>
+            <th class="num" style="width:150px;">% Utilizacao</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pools.map((p) => {
+            const consumed = p.usage_total + p.releases_total;
+            const fillW = Math.min(100, p.usage_pct).toFixed(1);
+            return `
+              <tr>
+                <td class="strong">${escape(p.name)}</td>
+                <td class="num">${fmtInt(p.printer_count)}</td>
+                <td class="num">${fmtInt(p.pool_total)}</td>
+                <td class="num">${fmtInt(p.usage_total)}</td>
+                <td class="num" style="color:#7c3aed;font-weight:600;">${p.releases_total > 0 ? '+' + fmtInt(p.releases_total) : '0'}</td>
+                <td class="num" style="color:${p.remaining < 0 ? '#dc2626' : '#16a34a'};font-weight:700;">${fmtInt(p.remaining)}</td>
+                <td class="num">
+                  <span class="mini-bar"><span class="fill" style="width:${fillW}%;background:${barColor(p.usage_pct)};"></span></span>
+                  <span style="color:${barColor(p.usage_pct)};font-weight:600;">${fmtPct(p.usage_pct)}</span>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+          <tr style="background:#f8fafc;">
+            <td class="strong">Total geral</td>
+            <td class="num strong">${fmtInt(pools.reduce((a, p) => a + p.printer_count, 0))}</td>
+            <td class="num strong">${fmtInt(totalPool)}</td>
+            <td class="num strong">${fmtInt(totalConsumed - totalReleases)}</td>
+            <td class="num strong" style="color:#7c3aed;">${totalReleases > 0 ? '+' + fmtInt(totalReleases) : '0'}</td>
+            <td class="num strong" style="color:${(totalPool - totalConsumed) < 0 ? '#dc2626' : '#16a34a'};">${fmtInt(totalPool - totalConsumed)}</td>
+            <td class="num strong">${fmtPct(totalPct)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
 function renderReleases(releases: Release[]): string {
   const total = releases.reduce((a, r) => a + (r.amount || 0), 0);
   const porUsuario = new Map<string, { count: number; total: number }>();
@@ -575,6 +635,8 @@ export function buildPrintReport(opts: BuildOpts): string {
   let body = '';
   let title = '';
 
+  const poolsHtml = opts.pools && opts.pools.length > 0 ? renderPools(opts.pools) : '';
+
   if (opts.tab === 'sector') {
     title = 'Relatório de Impressão por Setor';
     const rows: Row[] = opts.sectorData.map((s) => {
@@ -585,6 +647,7 @@ export function buildPrintReport(opts: BuildOpts): string {
     });
     body = renderCover(opts, title, gen)
       + renderKpis(rows, 'setores')
+      + poolsHtml
       + renderStatusDistribution(rows)
       + renderRanking(rows, 'setores com maior consumo', 10)
       + `<div class="page-break"></div>`
@@ -599,6 +662,7 @@ export function buildPrintReport(opts: BuildOpts): string {
     });
     body = renderCover(opts, title, gen)
       + renderKpis(rows, 'impressoras')
+      + poolsHtml
       + renderStatusDistribution(rows)
       + renderRanking(rows, 'impressoras com maior consumo', 10)
       + `<div class="page-break"></div>`
@@ -606,6 +670,7 @@ export function buildPrintReport(opts: BuildOpts): string {
   } else {
     title = 'Relatório de Liberações de Cota';
     body = renderCover(opts, title, gen)
+      + poolsHtml
       + renderReleases(opts.releasesData);
   }
 

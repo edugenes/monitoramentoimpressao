@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Quota, Printer, User } from '@/lib/types';
+import { Quota, Printer, User, PrinterType, PrinterTypePoolStatus, PrinterTypeCode } from '@/lib/types';
 import { getCurrentPeriod } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
 import ProgressBar from '@/components/ProgressBar';
 import Pagination from '@/components/Pagination';
 import SortableTh from '@/components/SortableTh';
+import PoolStatusCards from '@/components/PoolStatusCards';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plus, KeyRound, Search, Filter, ArrowUpDown, Pencil } from 'lucide-react';
 
@@ -31,32 +32,38 @@ export default function Cotas() {
   const [quotas, setQuotas] = useState<Quota[]>([]);
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [pools, setPools] = useState<PrinterTypePoolStatus[]>([]);
   const [sectorFilter, setSectorFilter] = useState('');
   const [printerFilter, setPrinterFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<PrinterTypeCode | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('name-asc');
   const [pageSize, setPageSize] = useState<number>(12);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [modalType, setModalType] = useState<'create' | 'edit' | 'release' | null>(null);
+  const [modalType, setModalType] = useState<'create' | 'edit' | 'release' | 'editPool' | null>(null);
   const [selectedQuota, setSelectedQuota] = useState<Quota | null>(null);
+  const [selectedPool, setSelectedPool] = useState<PrinterTypePoolStatus | null>(null);
 
   const [createForm, setCreateForm] = useState({ printer_id: '', monthly_limit: '' });
   const [editForm, setEditForm] = useState({ monthly_limit: '' });
   const [releaseForm, setReleaseForm] = useState({ amount: '', reason: '', released_by: '' });
+  const [editPoolForm, setEditPoolForm] = useState({ monthly_pool: '' });
 
   const period = getCurrentPeriod();
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const [quotaData, printerData] = await Promise.all([
+      const [quotaData, printerData, poolData] = await Promise.all([
         api.get<Quota[]>(`/quotas?period=${period}`),
         api.get<Printer[]>('/printers'),
+        api.get<PrinterTypePoolStatus[]>(`/printer-types/status?period=${period}`),
       ]);
       setQuotas(quotaData);
       setPrinters(printerData.filter((p) => p.active && p.sector_id));
+      setPools(poolData);
     } catch { console.error('Erro ao carregar dados'); }
     finally { if (showLoading) setLoading(false); }
   }, [period]);
@@ -80,7 +87,12 @@ export default function Cotas() {
 
   useEffect(() => { fetchData(true); }, [fetchData]);
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
-  useEffect(() => { setPage(1); }, [search, sectorFilter, printerFilter, statusFilter, sortBy, pageSize]);
+  useEffect(() => { setPage(1); }, [search, sectorFilter, printerFilter, statusFilter, typeFilter, sortBy, pageSize]);
+
+  const printerIdToType = printers.reduce<Record<number, PrinterTypeCode | null>>((acc, p) => {
+    acc[p.id] = (p.type_code as PrinterTypeCode) || null;
+    return acc;
+  }, {});
 
   usePolling(() => fetchData(false), { intervalMs: 15000, enabled: modalType === null });
 
@@ -116,6 +128,7 @@ export default function Cotas() {
       if (search && !q.printer_name?.toLowerCase().includes(search.toLowerCase()) && !q.sector_name?.toLowerCase().includes(search.toLowerCase())) return false;
       if (sectorFilter && q.sector_id !== parseInt(sectorFilter)) return false;
       if (printerFilter && q.printer_id !== parseInt(printerFilter)) return false;
+      if (typeFilter && printerIdToType[q.printer_id] !== typeFilter) return false;
       if (statusFilter === 'critical' && getPct(q) < 100) return false;
       if (statusFilter === 'warning' && (getPct(q) < 80 || getPct(q) >= 100)) return false;
       if (statusFilter === 'normal' && getPct(q) >= 80) return false;
@@ -156,6 +169,11 @@ export default function Cotas() {
     setEditForm({ monthly_limit: String(q.monthly_limit) });
     setModalType('edit');
   }
+  function openEditPool(p: PrinterTypePoolStatus) {
+    setSelectedPool(p);
+    setEditPoolForm({ monthly_pool: String(p.pool_total) });
+    setModalType('editPool');
+  }
   function openRelease(q: Quota) {
     setSelectedQuota(q);
     setReleaseForm({
@@ -191,6 +209,23 @@ export default function Cotas() {
     }
   }
 
+  async function handleEditPool(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedPool) return;
+    const newPool = parseInt(editPoolForm.monthly_pool);
+    if (Number.isNaN(newPool) || newPool < 0) {
+      alert('Informe um valor valido (numero maior ou igual a zero).');
+      return;
+    }
+    try {
+      await api.put(`/printer-types/${selectedPool.type_id}`, { monthly_pool: newPool });
+      setModalType(null);
+      fetchData(false);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao atualizar cota contratada');
+    }
+  }
+
   async function handleRelease(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedQuota) return;
@@ -217,6 +252,15 @@ export default function Cotas() {
           </button>
         )}
       </div>
+
+      {/* Cotas contratadas por tipo de impressora */}
+      <PoolStatusCards
+        pools={pools}
+        isAdmin={isAdmin}
+        onEdit={openEditPool}
+        onFilter={(code) => setTypeFilter(code)}
+        activeFilter={typeFilter}
+      />
 
       {/* Resumo rapido */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -268,6 +312,16 @@ export default function Cotas() {
             <option value="normal">Normal (&lt;80%)</option>
           </select>
         </div>
+
+        {typeFilter && (
+          <div className="mt-3 flex items-center gap-2 text-xs">
+            <span className="text-slate-500">Filtrando por tipo:</span>
+            <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">
+              {pools.find(p => p.code === typeFilter)?.name || typeFilter}
+            </span>
+            <button onClick={() => setTypeFilter(null)} className="text-blue-600 hover:underline">remover</button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mt-4 mb-3">
           <ArrowUpDown className="h-4 w-4 text-slate-400" />
@@ -445,6 +499,30 @@ export default function Cotas() {
             <p><span className="text-yellow-600">Uso:</span> <strong>{selectedQuota?.current_usage.toLocaleString('pt-BR')}</strong></p>
             <p className="text-xs text-yellow-600 mt-1">A liberação vale apenas para este mês. No próximo mês a cota volta ao valor original.</p>
           </div>
+          {(() => {
+            if (!selectedQuota) return null;
+            const typeCode = printerIdToType[selectedQuota.printer_id];
+            const pool = typeCode ? pools.find(p => p.code === typeCode) : null;
+            if (!pool) return null;
+            const requested = parseInt(releaseForm.amount) || 0;
+            const saldoAposLiberacao = pool.remaining - requested;
+            const baixo = saldoAposLiberacao < 0;
+            return (
+              <div className={`rounded-lg border p-3 text-sm space-y-1 ${baixo ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">Cota geral contratada — {pool.name}</p>
+                <p className={baixo ? 'text-red-800' : 'text-blue-800'}>
+                  <span className="opacity-70">Saldo atual do pool:</span> <strong>{pool.remaining.toLocaleString('pt-BR')}</strong> / {pool.pool_total.toLocaleString('pt-BR')}
+                </p>
+                {requested > 0 && (
+                  <p className={baixo ? 'text-red-800' : 'text-blue-800'}>
+                    <span className="opacity-70">Após esta liberação:</span>{' '}
+                    <strong className={baixo ? 'text-red-700' : ''}>{saldoAposLiberacao.toLocaleString('pt-BR')}</strong>
+                    {baixo && <span className="text-xs ml-1">(ultrapassa o contratado)</span>}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Páginas a Liberar *</label>
             <input type="number" required min="1" value={releaseForm.amount} onChange={(e) => setReleaseForm({ ...releaseForm, amount: e.target.value })}
@@ -481,6 +559,41 @@ export default function Cotas() {
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
             <button type="submit" className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Liberar</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Editar Cota Contratada (pool) */}
+      <Modal isOpen={modalType === 'editPool'} onClose={() => setModalType(null)} title="Editar Cota Contratada">
+        <form onSubmit={handleEditPool} className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 space-y-1">
+            <p><span className="text-blue-600">Tipo:</span> <strong>{selectedPool?.name}</strong></p>
+            <p><span className="text-blue-600">Impressoras deste tipo:</span> <strong>{selectedPool?.printer_count}</strong></p>
+            <p><span className="text-blue-600">Cota contratada atual:</span> <strong>{selectedPool?.pool_total.toLocaleString('pt-BR')}</strong></p>
+            <p><span className="text-blue-600">Consumido no mês:</span> <strong>{((selectedPool?.usage_total || 0) + (selectedPool?.releases_total || 0)).toLocaleString('pt-BR')}</strong>
+              {(selectedPool?.releases_total ?? 0) > 0 && (
+                <span className="text-purple-600"> (inclui {selectedPool?.releases_total.toLocaleString('pt-BR')} liberadas)</span>
+              )}
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nova cota contratada (páginas/mês) *</label>
+            <input
+              type="number"
+              required
+              min="0"
+              value={editPoolForm.monthly_pool}
+              onChange={(e) => setEditPoolForm({ monthly_pool: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+              autoFocus
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Este valor representa o total mensal contratado com a Simpress para este tipo de impressora.
+            </p>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
+            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Salvar</button>
           </div>
         </form>
       </Modal>
