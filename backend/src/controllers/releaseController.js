@@ -18,7 +18,11 @@ function getAll(req, res, next) {
 
 function create(req, res, next) {
   try {
-    const release = releaseService.create(req.body);
+    const payload = {
+      ...req.body,
+      created_by_user_id: req.user?.id || null,
+    };
+    const release = releaseService.create(payload);
     res.status(201).json(release);
   } catch (err) {
     next(err);

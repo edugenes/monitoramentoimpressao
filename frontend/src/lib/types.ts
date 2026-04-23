@@ -76,6 +76,9 @@ export interface Release {
   amount: number;
   reason: string | null;
   released_by: string | null;
+  created_by_user_id?: number | null;
+  operator_username?: string | null;
+  operator_name?: string | null;
   created_at: string;
   printer_name?: string;
   sector_name?: string;

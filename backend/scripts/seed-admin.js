@@ -87,6 +87,18 @@ try {
   console.warn('Migration 007_printer_types:', err.message);
 }
 
+// Migration 008 - auditoria do operador que registrou a liberacao
+try {
+  if (!hasColumn('releases', 'created_by_user_id')) {
+    db.exec(`ALTER TABLE releases ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)`);
+    console.log('Coluna created_by_user_id adicionada em releases.');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_releases_created_by ON releases(created_by_user_id)`);
+  console.log('Migration 008_releases_operator OK.');
+} catch (err) {
+  console.warn('Migration 008_releases_operator:', err.message);
+}
+
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!existing) {
   const hash = bcrypt.hashSync('admin123', 10);

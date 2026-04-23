@@ -2,11 +2,16 @@ const db = require('../config/db');
 
 function getAll(filters = {}, sectorIds) {
   let query = `
-    SELECT r.*, q.period, p.name as printer_name, s.name as sector_name
+    SELECT r.*, q.period,
+           p.name as printer_name,
+           s.name as sector_name,
+           u.username as operator_username,
+           u.name as operator_name
     FROM releases r
     JOIN quotas q ON r.quota_id = q.id
     JOIN printers p ON q.printer_id = p.id
     JOIN sectors s ON q.sector_id = s.id
+    LEFT JOIN users u ON r.created_by_user_id = u.id
     WHERE 1=1
   `;
   const params = [];
@@ -35,13 +40,24 @@ function getAll(filters = {}, sectorIds) {
   return db.prepare(query).all(...params);
 }
 
-const createRelease = db.transaction(({ quota_id, amount, reason, released_by }) => {
+const createRelease = db.transaction(({ quota_id, amount, reason, released_by, created_by_user_id }) => {
   const stmt = db.prepare(
-    'INSERT INTO releases (quota_id, amount, reason, released_by) VALUES (?, ?, ?, ?)'
+    'INSERT INTO releases (quota_id, amount, reason, released_by, created_by_user_id) VALUES (?, ?, ?, ?, ?)'
   );
-  const result = stmt.run(quota_id, amount, reason || null, released_by || null);
+  const result = stmt.run(
+    quota_id,
+    amount,
+    reason || null,
+    released_by || null,
+    created_by_user_id || null
+  );
 
-  return db.prepare('SELECT * FROM releases WHERE id = ?').get(result.lastInsertRowid);
+  return db.prepare(`
+    SELECT r.*, u.username as operator_username, u.name as operator_name
+    FROM releases r
+    LEFT JOIN users u ON r.created_by_user_id = u.id
+    WHERE r.id = ?
+  `).get(result.lastInsertRowid);
 });
 
 function create(data) {

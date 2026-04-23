@@ -61,6 +61,7 @@ export default function Liberacoes() {
       amount: { key: 'amount', getter: (r) => r.amount, defaultDir: 'desc' },
       reason: { key: 'reason', getter: (r) => r.reason || '' },
       released_by: { key: 'released_by', getter: (r) => r.released_by || '' },
+      operator_name: { key: 'operator_name', getter: (r) => r.operator_name || r.operator_username || '' },
     },
     defaultKey: 'created_at',
     defaultDir: 'desc',
@@ -144,7 +145,9 @@ export default function Liberacoes() {
                   currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
                 <SortableTh label="Motivo" sortKey="reason" align="left"
                   currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
-                <SortableTh label="Liberado por" sortKey="released_by" align="left"
+                <SortableTh label="Autorizado por" sortKey="released_by" align="left"
+                  currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                <SortableTh label="Operador" sortKey="operator_name" align="left"
                   currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
               </tr>
             </thead>
@@ -163,11 +166,23 @@ export default function Liberacoes() {
                     {release.reason || '-'}
                   </td>
                   <td className="p-4 text-slate-600 text-sm">{release.released_by || '-'}</td>
+                  <td className="p-4 text-slate-500 text-sm">
+                    {release.operator_name ? (
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-slate-700">{release.operator_name}</span>
+                        {release.operator_username && (
+                          <span className="text-xs text-slate-400">@{release.operator_username}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 italic text-xs">legado</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {sortedData.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-400">
+                  <td colSpan={7} className="p-8 text-center text-slate-400">
                     Nenhuma liberação encontrada para este período
                   </td>
                 </tr>

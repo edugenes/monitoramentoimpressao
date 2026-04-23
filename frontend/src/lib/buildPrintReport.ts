@@ -607,7 +607,8 @@ function renderReleases(releases: Release[]): string {
             <th>Setor</th>
             <th class="num" style="width:80px;">Páginas</th>
             <th>Motivo</th>
-            <th style="width:130px;">Liberado por</th>
+            <th style="width:120px;">Autorizado por</th>
+            <th style="width:120px;">Operador</th>
           </tr>
         </thead>
         <tbody>
@@ -621,6 +622,7 @@ function renderReleases(releases: Release[]): string {
                 <td class="num" style="color:#7c3aed;font-weight:700;">+${fmtInt(r.amount)}</td>
                 <td style="color:#64748b;">${escape(r.reason || '-')}</td>
                 <td>${escape(r.released_by || '-')}</td>
+                <td style="color:#64748b;">${escape(r.operator_name || r.operator_username || '-')}</td>
               </tr>
             `).join('')}
         </tbody>
