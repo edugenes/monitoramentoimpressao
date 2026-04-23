@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Quota, Printer } from '@/lib/types';
+import { Quota, Printer, User } from '@/lib/types';
 import { getCurrentPeriod } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
@@ -10,7 +10,7 @@ import ProgressBar from '@/components/ProgressBar';
 import Pagination from '@/components/Pagination';
 import SortableTh from '@/components/SortableTh';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, KeyRound, Search, Filter, ArrowUpDown } from 'lucide-react';
+import { Plus, KeyRound, Search, Filter, ArrowUpDown, Pencil } from 'lucide-react';
 
 type SortBy =
   | 'name-asc'
@@ -27,9 +27,10 @@ type SortBy =
 const PAGE_SIZE_OPTIONS = [12, 25, 50, 100, 9999] as const;
 
 export default function Cotas() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user: currentUser } = useAuth();
   const [quotas, setQuotas] = useState<Quota[]>([]);
   const [printers, setPrinters] = useState<Printer[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [sectorFilter, setSectorFilter] = useState('');
   const [printerFilter, setPrinterFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -38,10 +39,11 @@ export default function Cotas() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [modalType, setModalType] = useState<'create' | 'release' | null>(null);
+  const [modalType, setModalType] = useState<'create' | 'edit' | 'release' | null>(null);
   const [selectedQuota, setSelectedQuota] = useState<Quota | null>(null);
 
   const [createForm, setCreateForm] = useState({ printer_id: '', monthly_limit: '' });
+  const [editForm, setEditForm] = useState({ monthly_limit: '' });
   const [releaseForm, setReleaseForm] = useState({ amount: '', reason: '', released_by: '' });
 
   const period = getCurrentPeriod();
@@ -59,6 +61,16 @@ export default function Cotas() {
     finally { if (showLoading) setLoading(false); }
   }, [period]);
 
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await api.get<User[]>('/users');
+      setUsers(data.filter((u) => u.active));
+    } catch {
+      console.error('Erro ao carregar usuarios');
+    }
+  }, [isAdmin]);
+
   const sectorOptions = printers.reduce<{ id: number; name: string }[]>((acc, p) => {
     if (p.sector_id && p.sector_name && !acc.find(s => s.id === p.sector_id)) {
       acc.push({ id: p.sector_id, name: p.sector_name });
@@ -67,6 +79,7 @@ export default function Cotas() {
   }, []).sort((a, b) => a.name.localeCompare(b.name));
 
   useEffect(() => { fetchData(true); }, [fetchData]);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
   useEffect(() => { setPage(1); }, [search, sectorFilter, printerFilter, statusFilter, sortBy, pageSize]);
 
   usePolling(() => fetchData(false), { intervalMs: 15000, enabled: modalType === null });
@@ -138,7 +151,20 @@ export default function Cotas() {
   const warning = filtered.filter(q => getPct(q) >= 80 && getPct(q) < 100).length;
 
   function openCreate() { setCreateForm({ printer_id: '', monthly_limit: '' }); setModalType('create'); }
-  function openRelease(q: Quota) { setSelectedQuota(q); setReleaseForm({ amount: '', reason: '', released_by: '' }); setModalType('release'); }
+  function openEdit(q: Quota) {
+    setSelectedQuota(q);
+    setEditForm({ monthly_limit: String(q.monthly_limit) });
+    setModalType('edit');
+  }
+  function openRelease(q: Quota) {
+    setSelectedQuota(q);
+    setReleaseForm({
+      amount: '',
+      reason: '',
+      released_by: currentUser?.name || '',
+    });
+    setModalType('release');
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -148,9 +174,30 @@ export default function Cotas() {
     } catch (err: any) { alert(err.message || 'Erro ao criar cota'); }
   }
 
+  async function handleEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedQuota) return;
+    const newLimit = parseInt(editForm.monthly_limit);
+    if (Number.isNaN(newLimit) || newLimit < 0) {
+      alert('Informe um limite valido (numero maior ou igual a zero).');
+      return;
+    }
+    try {
+      await api.put(`/quotas/${selectedQuota.id}`, { monthly_limit: newLimit });
+      setModalType(null);
+      fetchData(false);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao atualizar cota');
+    }
+  }
+
   async function handleRelease(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedQuota) return;
+    if (!releaseForm.released_by) {
+      alert('Selecione quem autorizou a liberacao.');
+      return;
+    }
     try {
       await api.post('/releases', { quota_id: selectedQuota.id, amount: parseInt(releaseForm.amount), reason: releaseForm.reason || null, released_by: releaseForm.released_by || null });
       setModalType(null); fetchData(false);
@@ -292,7 +339,13 @@ export default function Cotas() {
                         {isAdmin && (
                           <td className="p-3 pr-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button onClick={() => openEdit(quota)}
+                                title="Editar cota mensal"
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors">
+                                <Pencil className="h-3 w-3" /> Editar
+                              </button>
                               <button onClick={() => openRelease(quota)}
+                                title="Liberar paginas extras neste mes"
                                 className="flex items-center gap-1 px-2.5 py-1 text-xs bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100 transition-colors">
                                 <KeyRound className="h-3 w-3" /> Liberar
                               </button>
@@ -345,6 +398,41 @@ export default function Cotas() {
         </form>
       </Modal>
 
+      {/* Modal Editar Cota */}
+      <Modal isOpen={modalType === 'edit'} onClose={() => setModalType(null)} title="Editar Cota Mensal">
+        <form onSubmit={handleEdit} className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 space-y-1">
+            <p><span className="text-blue-600">Impressora:</span> <strong>{selectedQuota?.printer_name}</strong></p>
+            <p><span className="text-blue-600">Setor:</span> <strong>{selectedQuota?.sector_name}</strong></p>
+            <p><span className="text-blue-600">Cota atual:</span> <strong>{selectedQuota?.monthly_limit.toLocaleString('pt-BR')}</strong></p>
+            <p><span className="text-blue-600">Uso no mês:</span> <strong>{selectedQuota?.current_usage.toLocaleString('pt-BR')}</strong></p>
+            {(selectedQuota?.total_released ?? 0) > 0 && (
+              <p className="text-xs text-purple-600">Há {selectedQuota?.total_released.toLocaleString('pt-BR')} páginas liberadas neste mês (não serão alteradas).</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nova cota mensal (páginas) *</label>
+            <input
+              type="number"
+              required
+              min="0"
+              value={editForm.monthly_limit}
+              onChange={(e) => setEditForm({ monthly_limit: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+              placeholder="Ex: 500"
+              autoFocus
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Este valor passa a valer imediatamente para o mês atual e futuros. O histórico de uso continua preservado.
+            </p>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
+            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Salvar</button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Modal Liberar Cota */}
       <Modal isOpen={modalType === 'release'} onClose={() => setModalType(null)} title={`Liberar Cota Extra`}>
         <form onSubmit={handleRelease} className="space-y-4">
@@ -368,9 +456,27 @@ export default function Cotas() {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700" rows={2} placeholder="Ex: Demanda extra para relatório trimestral" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Liberado por</label>
-            <input type="text" value={releaseForm.released_by} onChange={(e) => setReleaseForm({ ...releaseForm, released_by: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700" placeholder="Nome de quem autorizou" />
+            <label className="block text-sm font-medium text-slate-700 mb-1">Liberado por *</label>
+            <select
+              required
+              value={releaseForm.released_by}
+              onChange={(e) => setReleaseForm({ ...releaseForm, released_by: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+            >
+              <option value="">Selecione quem autorizou...</option>
+              {[...users]
+                .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+                .map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name} {u.role === 'admin' ? '(Administrador)' : '(Gestor)'}
+                  </option>
+                ))}
+            </select>
+            {users.length === 0 && (
+              <p className="text-xs text-slate-500 mt-1">
+                Nenhum usuário cadastrado. Cadastre em <strong>Usuários</strong>.
+              </p>
+            )}
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
