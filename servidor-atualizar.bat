@@ -60,39 +60,60 @@ cd /d "%FRONTEND_DIR%"
 call npm install
 if errorlevel 1 goto fim_erro
 
-echo     Parando hse-frontend no PM2 para liberar .next\trace...
-call pm2 stop hse-frontend >nul 2>&1
-:: Espera o SO liberar handles de arquivo do Next.js em producao
-timeout /t 3 /nobreak >nul
+echo     Removendo hse-frontend do PM2 (pm2 delete forca kill)...
+cd /d "%BASE_DIR%"
+call pm2 delete hse-frontend >nul 2>&1
+cd /d "%FRONTEND_DIR%"
+timeout /t 2 /nobreak >nul
 
-:: Garante que qualquer next.js server sobrevivente seja finalizado
-for /f "tokens=2" %%p in ('tasklist /fi "imagename eq node.exe" /fo csv /nh 2^>nul ^| findstr /i "next"') do (
-    taskkill /pid %%~p /f >nul 2>&1
+echo     Finalizando processos node.exe ligados ao Next.js...
+:: Mata qualquer node.exe cuja linha de comando mencione "next" ou ".next"
+:: (pega orfao de next build/start/dev que esteja segurando .next\trace).
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and ($_.CommandLine -like '*next*' -or $_.CommandLine -like '*.next*') } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Host ('    Killed PID ' + $_.ProcessId) } catch {} }" 2>nul
+timeout /t 2 /nobreak >nul
+
+:: Renomeia .next para .next.old - rename quase sempre funciona mesmo com
+:: trace travado, e tambem libera o nome para um build limpo imediato.
+if exist ".next.old" (
+    echo     Limpando .next.old residual...
+    rmdir /s /q ".next.old" 2>nul
+)
+if exist ".next" (
+    ren ".next" ".next.old" 2>nul
+    if exist ".next" (
+        echo     [AVISO] Rename falhou. Tentando apagar apenas o trace e subdirs...
+        del /f /q ".next\trace" 2>nul
+        del /f /q ".next\trace.*" 2>nul
+        rmdir /s /q ".next\cache" 2>nul
+        rmdir /s /q ".next\server" 2>nul
+        rmdir /s /q ".next\static" 2>nul
+        rmdir /s /q ".next\diagnostics" 2>nul
+        rmdir /s /q ".next\build" 2>nul
+    ) else (
+        echo     .next renomeado para .next.old com sucesso.
+    )
 )
 
-:: Apaga .next com retry (se primeira tentativa falhar, espera e tenta de novo)
-if exist ".next" (
-    rmdir /s /q .next 2>nul
-    if exist ".next" (
-        timeout /t 2 /nobreak >nul
-        rmdir /s /q .next 2>nul
-    )
-    if exist ".next" (
-        echo [AVISO] Nao consegui apagar .next. O build vai tentar sobrescrever.
-    )
+:: Apaga .next.old em background (nao bloqueia o build)
+if exist ".next.old" (
+    start "" /b cmd /c "rmdir /s /q .next.old 2>nul"
 )
 
 call npx next build
 if errorlevel 1 (
     echo.
-    echo [AVISO] Build falhou. Tentando uma segunda vez apos parar tudo...
-    cd /d "%BASE_DIR%"
-    call pm2 delete hse-frontend >nul 2>&1
+    echo [AVISO] Build falhou. Tentando uma segunda vez com limpeza total...
+    powershell -NoProfile -Command "Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
     timeout /t 3 /nobreak >nul
-    cd /d "%FRONTEND_DIR%"
     if exist ".next" rmdir /s /q .next 2>nul
+    if exist ".next.old" rmdir /s /q .next.old 2>nul
     call npx next build
     if errorlevel 1 goto fim_erro
+    :: Se matamos tudo, precisamos reerguer o backend tambem
+    cd /d "%BASE_DIR%"
+    call pm2 resurrect >nul 2>&1
+    call pm2 start ecosystem.config.js --only hse-backend >nul 2>&1
+    cd /d "%FRONTEND_DIR%"
 )
 
 echo.
