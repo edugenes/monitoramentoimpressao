@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Summary, Quota, SnmpStatus } from '@/lib/types';
+import { Summary, Quota, SnmpStatus, PrinterTypePoolStatus } from '@/lib/types';
 import { getCurrentPeriod, getMonthOptions, formatDateTime } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Card from '@/components/Card';
 import ProgressBar from '@/components/ProgressBar';
-import { Printer, Building2, AlertTriangle, KeyRound, TrendingUp, Activity, Droplets } from 'lucide-react';
+import PoolStatusCards from '@/components/PoolStatusCards';
+import { Printer, Building2, AlertTriangle, KeyRound, TrendingUp, Activity, Droplets, Layers } from 'lucide-react';
+import Link from 'next/link';
 import {
   BarChart,
   Bar,
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [criticalQuotas, setCriticalQuotas] = useState<Quota[]>([]);
   const [snmpStatus, setSnmpStatus] = useState<SnmpStatus | null>(null);
+  const [pools, setPools] = useState<PrinterTypePoolStatus[]>([]);
   const [period, setPeriod] = useState(getCurrentPeriod());
   const [loading, setLoading] = useState(true);
   const monthOptions = getMonthOptions();
@@ -35,13 +38,15 @@ export default function Dashboard() {
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const [summaryData, quotasData, snmpData] = await Promise.all([
+      const [summaryData, quotasData, snmpData, poolData] = await Promise.all([
         api.get<Summary>(`/reports/summary?period=${period}`),
         api.get<Quota[]>(`/quotas?period=${period}`),
         api.get<SnmpStatus>('/snmp/status').catch(() => null),
+        api.get<PrinterTypePoolStatus[]>(`/printer-types/status?period=${period}`).catch(() => []),
       ]);
       setSummary(summaryData);
       setSnmpStatus(snmpData);
+      setPools(poolData);
 
       const sorted = quotasData
         .filter(q => q.monthly_limit > 0)
@@ -154,6 +159,28 @@ export default function Dashboard() {
         </div>
         <ProgressBar percentage={usagePercent} />
       </div>
+
+      {/* Cotas contratadas por tipo de impressora */}
+      {pools.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Layers className="h-5 w-5 text-slate-400" />
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">Cotas Contratadas por Tipo</h3>
+                <p className="text-xs text-slate-400">Pool mensal acordado com a Simpress</p>
+              </div>
+            </div>
+            <Link
+              href="/cotas"
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Gerenciar em Cotas →
+            </Link>
+          </div>
+          <PoolStatusCards pools={pools} />
+        </div>
+      )}
 
       {/* Graficos - Setor (barra) + Setor (pizza) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
