@@ -59,9 +59,41 @@ echo [5/6] Atualizando dependencias e recompilando frontend...
 cd /d "%FRONTEND_DIR%"
 call npm install
 if errorlevel 1 goto fim_erro
-if exist ".next" rmdir /s /q .next 2>nul
+
+echo     Parando hse-frontend no PM2 para liberar .next\trace...
+call pm2 stop hse-frontend >nul 2>&1
+:: Espera o SO liberar handles de arquivo do Next.js em producao
+timeout /t 3 /nobreak >nul
+
+:: Garante que qualquer next.js server sobrevivente seja finalizado
+for /f "tokens=2" %%p in ('tasklist /fi "imagename eq node.exe" /fo csv /nh 2^>nul ^| findstr /i "next"') do (
+    taskkill /pid %%~p /f >nul 2>&1
+)
+
+:: Apaga .next com retry (se primeira tentativa falhar, espera e tenta de novo)
+if exist ".next" (
+    rmdir /s /q .next 2>nul
+    if exist ".next" (
+        timeout /t 2 /nobreak >nul
+        rmdir /s /q .next 2>nul
+    )
+    if exist ".next" (
+        echo [AVISO] Nao consegui apagar .next. O build vai tentar sobrescrever.
+    )
+)
+
 call npx next build
-if errorlevel 1 goto fim_erro
+if errorlevel 1 (
+    echo.
+    echo [AVISO] Build falhou. Tentando uma segunda vez apos parar tudo...
+    cd /d "%BASE_DIR%"
+    call pm2 delete hse-frontend >nul 2>&1
+    timeout /t 3 /nobreak >nul
+    cd /d "%FRONTEND_DIR%"
+    if exist ".next" rmdir /s /q .next 2>nul
+    call npx next build
+    if errorlevel 1 goto fim_erro
+)
 
 echo.
 echo [6/6] Recarregando frontend PM2...
@@ -70,7 +102,7 @@ call pm2 describe hse-frontend >nul 2>&1
 if errorlevel 1 (
     call pm2 start ecosystem.config.js --only hse-frontend
 ) else (
-    call pm2 reload hse-frontend
+    call pm2 restart hse-frontend --update-env
 )
 if errorlevel 1 goto fim_erro
 
