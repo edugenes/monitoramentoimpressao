@@ -17,6 +17,7 @@ import {
   Shield,
   Eye,
   AlertTriangle,
+  Calculator,
 } from 'lucide-react';
 
 const menuItems = [
@@ -25,6 +26,7 @@ const menuItems = [
   { href: '/setores', label: 'Setores', icon: Building2, adminOnly: true },
   { href: '/cotas', label: 'Cotas', icon: Gauge, adminOnly: false },
   { href: '/liberacoes', label: 'Liberações', icon: KeyRound, adminOnly: false },
+  { href: '/calculadora', label: 'Calc. Liberação', icon: Calculator, adminOnly: true },
   { href: '/monitoramento', label: 'Monitoramento', icon: Activity, adminOnly: false },
   { href: '/alertas', label: 'Alertas', icon: AlertTriangle, adminOnly: false },
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3, adminOnly: false },
