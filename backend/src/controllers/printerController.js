@@ -1,5 +1,6 @@
 const printerService = require('../services/printerService');
 const snmpService = require('../services/snmpService');
+const printerControlService = require('../services/printerControlService');
 const db = require('../config/db');
 const { getSectorFilter } = require('../middleware/auth');
 
@@ -90,4 +91,65 @@ function remove(req, res, next) {
   }
 }
 
-module.exports = { getAll, getById, create, update, remove };
+async function syncQuota(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const result = await printerControlService.syncQuotaToPrinter(id, {
+      triggeredBy: `admin:${req.user?.username || req.user?.id || 'unknown'}`,
+      force: true,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function blockPrinter(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const result = await printerControlService.manualBlock(
+      id,
+      `admin:${req.user?.username || req.user?.id || 'unknown'}`
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function unblockPrinter(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const overrideCredits = req.body?.credits != null ? Number(req.body.credits) : undefined;
+    const result = await printerControlService.manualUnblock(id, {
+      overrideCredits,
+      triggeredBy: `admin:${req.user?.username || req.user?.id || 'unknown'}`,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function getBlockEvents(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const events = printerControlService.getBlockEvents(id, { limit });
+    res.json(events);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  getAll,
+  getById,
+  create,
+  update,
+  remove,
+  syncQuota,
+  blockPrinter,
+  unblockPrinter,
+  getBlockEvents,
+};

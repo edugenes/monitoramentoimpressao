@@ -32,19 +32,47 @@ function getById(id) {
   `).get(id);
 }
 
-function create({ name, model, sector_id, local_description, ip_address, snmp_community }) {
+function create({ name, model, sector_id, local_description, ip_address, snmp_community, quota_sync_enabled }) {
   const stmt = db.prepare(
-    'INSERT INTO printers (name, model, sector_id, local_description, ip_address, snmp_community) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO printers (name, model, sector_id, local_description, ip_address, snmp_community, quota_sync_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
-  const result = stmt.run(name, model || null, sector_id || null, local_description || null, ip_address || null, snmp_community || 'public');
+  const result = stmt.run(
+    name,
+    model || null,
+    sector_id || null,
+    local_description || null,
+    ip_address || null,
+    snmp_community || 'public',
+    quota_sync_enabled ? 1 : 0
+  );
   return getById(result.lastInsertRowid);
 }
 
-function update(id, { name, model, sector_id, local_description, ip_address, active, snmp_community }) {
-  const stmt = db.prepare(
-    'UPDATE printers SET name = ?, model = ?, sector_id = ?, local_description = ?, ip_address = ?, active = ?, snmp_community = ? WHERE id = ?'
-  );
-  stmt.run(name, model || null, sector_id || null, local_description || null, ip_address || null, active ? 1 : 0, snmp_community || 'public', id);
+function update(id, { name, model, sector_id, local_description, ip_address, active, snmp_community, quota_sync_enabled }) {
+  const fields = [
+    'name = ?',
+    'model = ?',
+    'sector_id = ?',
+    'local_description = ?',
+    'ip_address = ?',
+    'active = ?',
+    'snmp_community = ?',
+  ];
+  const params = [
+    name,
+    model || null,
+    sector_id || null,
+    local_description || null,
+    ip_address || null,
+    active ? 1 : 0,
+    snmp_community || 'public',
+  ];
+  if (quota_sync_enabled !== undefined) {
+    fields.push('quota_sync_enabled = ?');
+    params.push(quota_sync_enabled ? 1 : 0);
+  }
+  params.push(id);
+  db.prepare(`UPDATE printers SET ${fields.join(', ')} WHERE id = ?`).run(...params);
   return getById(id);
 }
 

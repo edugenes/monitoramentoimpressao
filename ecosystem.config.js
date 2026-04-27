@@ -13,6 +13,10 @@ module.exports = {
       name: 'hse-backend',
       cwd: './backend',
       script: 'src/index.js',
+      // No Windows com nvm-windows, garantir o mesmo Node usado para compilar
+      // o better-sqlite3 (NODE_MODULE_VERSION 115 = Node 20.x). Caso o servidor
+      // de producao tenha Node 20 no PATH global, esta linha pode ser omitida.
+      interpreter: process.env.PM2_NODE_INTERPRETER || undefined,
       instances: 1,
       exec_mode: 'fork',
       watch: false,

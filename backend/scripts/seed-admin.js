@@ -99,6 +99,42 @@ try {
   console.warn('Migration 008_releases_operator:', err.message);
 }
 
+// Migration 009 - sincronizacao da Cota Local HP via EWS
+try {
+  runMigration('009_quota_sync.sql');
+  if (!hasColumn('printers', 'quota_sync_enabled')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN quota_sync_enabled INTEGER DEFAULT 0`);
+    console.log('Coluna quota_sync_enabled adicionada em printers.');
+  }
+  if (!hasColumn('printers', 'last_quota_sync_at')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN last_quota_sync_at TEXT`);
+    console.log('Coluna last_quota_sync_at adicionada em printers.');
+  }
+  if (!hasColumn('printers', 'last_quota_sync_credits')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN last_quota_sync_credits INTEGER`);
+    console.log('Coluna last_quota_sync_credits adicionada em printers.');
+  }
+  if (!hasColumn('printers', 'last_quota_sync_error')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN last_quota_sync_error TEXT`);
+    console.log('Coluna last_quota_sync_error adicionada em printers.');
+  }
+  if (!hasColumn('printers', 'manual_unblock_until')) {
+    db.exec(`ALTER TABLE printers ADD COLUMN manual_unblock_until TEXT`);
+    console.log('Coluna manual_unblock_until adicionada em printers.');
+  }
+  console.log('Migration 009_quota_sync OK.');
+} catch (err) {
+  console.warn('Migration 009_quota_sync:', err.message);
+}
+
+// Migration 010 - propostas mensais de cota (balanceamento)
+try {
+  runMigration('010_quota_proposals.sql');
+  console.log('Migration 010_quota_proposals OK.');
+} catch (err) {
+  console.warn('Migration 010_quota_proposals:', err.message);
+}
+
 const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!existing) {
   const hash = bcrypt.hashSync('admin123', 10);

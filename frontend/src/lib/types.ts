@@ -13,6 +13,32 @@ export interface Printer {
   type_id?: number | null;
   type_code?: PrinterTypeCode | null;
   type_name?: string | null;
+  quota_sync_enabled?: number | boolean | null;
+  last_quota_sync_at?: string | null;
+  last_quota_sync_credits?: number | null;
+  last_quota_sync_error?: string | null;
+  manual_unblock_until?: string | null;
+}
+
+export interface PrinterBlockEvent {
+  id: number;
+  printer_id: number;
+  action: 'sync' | 'reset' | 'message' | 'manual_block' | 'manual_unblock';
+  credits_before: number | null;
+  credits_after: number | null;
+  success: number;
+  error: string | null;
+  triggered_by: string | null;
+  created_at: string;
+}
+
+export interface SyncQuotaResult {
+  skipped?: boolean;
+  reason?: string;
+  success?: boolean;
+  credits?: number;
+  results?: { account: string; success: boolean; status?: number; error?: string }[];
+  panelResult?: { success: boolean; oid?: string; attempts?: { oid: string; error: string }[] } | null;
 }
 
 export type PrinterTypeCode =
@@ -225,4 +251,168 @@ export interface AuthResponse {
     role: 'admin' | 'gestor';
     sectors: number[];
   };
+}
+
+export type BalanceStatus = 'overflow' | 'critical' | 'warning' | 'ok' | 'idle' | 'unset';
+
+export interface BalanceTypePool {
+  type_id: number;
+  code: string;
+  name: string;
+  color_only: number;
+  printer_count: number;
+  pool_total: number;
+  usage_total: number;
+  releases_total: number;
+  remaining: number;
+  usage_pct: number;
+  period: string;
+}
+
+export interface BalanceOverview {
+  period: string;
+  printer_count: number;
+  quota_count: number;
+  total_alloc: number;
+  total_releases: number;
+  effective_limit: number;
+  total_used: number;
+  available: number;
+  usage_pct: number;
+  overflowed_count: number;
+  idle_count: number;
+  by_type: BalanceTypePool[];
+}
+
+export interface BalanceSector {
+  sector_id: number;
+  sector_name: string;
+  printer_count: number;
+  monthly_limit: number;
+  current_usage: number;
+  releases: number;
+  effective_limit: number;
+  usage_pct: number;
+  status: BalanceStatus;
+}
+
+export interface BalancePrinter {
+  id: number;
+  name: string;
+  ip_address: string | null;
+  model: string | null;
+  sector_id: number | null;
+  sector_name: string | null;
+  type_code: PrinterTypeCode | null;
+  type_name: string | null;
+  quota_id: number | null;
+  monthly_limit: number | null;
+  current_usage: number | null;
+  releases: number;
+  effective_limit: number;
+  usage_pct: number | null;
+  status: BalanceStatus;
+  quota_sync_enabled: number;
+  last_quota_sync_credits: number | null;
+  last_quota_sync_at: string | null;
+  last_quota_sync_error: string | null;
+}
+
+export interface BalanceDivergence {
+  printer_id: number;
+  printer_name: string;
+  ip_address: string;
+  sync_enabled: boolean;
+  bank: {
+    monthly_limit: number | null;
+    current_usage: number | null;
+    releases: number;
+    effective_limit: number;
+    expected_credits: number;
+  };
+  hp: {
+    guest_credits: number | null;
+    guest_limit: number | null;
+    others_credits: number | null;
+    others_limit: number | null;
+  } | null;
+  hp_error: string | null;
+  divergent: boolean;
+}
+
+export type ProposalStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'applied';
+
+export interface ProposalItem {
+  id: number;
+  proposal_id: number;
+  printer_id: number;
+  current_limit: number;
+  current_usage: number;
+  avg_3m: number;
+  suggested_limit: number;
+  approved_limit: number | null;
+  reason: string | null;
+  printer_name: string;
+  ip_address: string | null;
+  model: string | null;
+  sector_name: string | null;
+  type_id: number | null;
+  type_code: string | null;
+  type_name: string | null;
+  type_pool: number | null;
+  created_at: string;
+}
+
+export interface ProposalTotalsByType {
+  type_code: string;
+  type_name: string;
+  pool_total: number;
+  printer_count: number;
+  totalCurrent: number;
+  totalSuggested: number;
+  totalApproved: number;
+  deltaApproved: number;
+  deltaSuggested: number;
+  poolUsagePctApproved: number;
+  poolUsagePctSuggested: number;
+  overflowApproved: boolean;
+  overflowSuggested: boolean;
+}
+
+export interface ProposalTotals {
+  totalCurrent: number;
+  totalSuggested: number;
+  totalApproved: number;
+  deltaSuggested: number;
+  deltaApproved: number;
+  byType: ProposalTotalsByType[];
+}
+
+export interface QuotaProposal {
+  id: number;
+  period: string;
+  status: ProposalStatus;
+  generated_at: string;
+  generated_by_user_id: number | null;
+  generated_by_name: string | null;
+  approved_by_user_id: number | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  applied_at: string | null;
+  notes: string | null;
+  items: ProposalItem[];
+  totals: ProposalTotals;
+}
+
+export interface ProposalSummary {
+  id: number;
+  period: string;
+  status: ProposalStatus;
+  generated_at: string;
+  approved_at: string | null;
+  applied_at: string | null;
+  generated_by_name: string | null;
+  approved_by_name: string | null;
+  item_count: number;
 }

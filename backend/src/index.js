@@ -23,6 +23,8 @@ const usageRoutes = require('./routes/usageRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const snmpRoutes = require('./routes/snmpRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const quotaBalanceRoutes = require('./routes/quotaBalanceRoutes');
+const quotaProposalRoutes = require('./routes/quotaProposalRoutes');
 const scheduler = require('./jobs/scheduler');
 
 const app = express();
@@ -47,6 +49,8 @@ app.use('/api/usage', authenticate, usageRoutes);
 app.use('/api/reports', authenticate, reportRoutes);
 app.use('/api/snmp', authenticate, snmpRoutes);
 app.use('/api/alerts', authenticate, alertRoutes);
+app.use('/api/quota-balance', authenticate, quotaBalanceRoutes);
+app.use('/api/quota-proposals', authenticate, quotaProposalRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

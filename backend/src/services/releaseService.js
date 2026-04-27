@@ -61,7 +61,23 @@ const createRelease = db.transaction(({ quota_id, amount, reason, released_by, c
 });
 
 function create(data) {
-  return createRelease(data);
+  const release = createRelease(data);
+
+  // Apos criar liberacao, reavalia creditos e sincroniza com a impressora.
+  try {
+    const printerId = db.prepare(`
+      SELECT printer_id FROM quotas WHERE id = ?
+    `).get(data.quota_id)?.printer_id;
+    if (printerId) {
+      const printerControl = require('./printerControlService');
+      printerControl.syncQuotaToPrinter(printerId, { triggeredBy: `release:${data.created_by_user_id || 'unknown'}` })
+        .catch((err) => console.warn(`[printerControl] sync apos liberacao ${printerId}: ${err.message}`));
+    }
+  } catch (err) {
+    console.warn('[printerControl] hook em release falhou:', err.message);
+  }
+
+  return release;
 }
 
 function countByPeriod(period) {

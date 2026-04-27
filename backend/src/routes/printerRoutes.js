@@ -25,4 +25,9 @@ router.put('/:id',
 
 router.delete('/:id', requireAdmin, controller.remove);
 
+router.post('/:id/sync-quota', requireAdmin, controller.syncQuota);
+router.post('/:id/block', requireAdmin, controller.blockPrinter);
+router.post('/:id/unblock', requireAdmin, controller.unblockPrinter);
+router.get('/:id/block-events', requireAdmin, controller.getBlockEvents);
+
 module.exports = router;

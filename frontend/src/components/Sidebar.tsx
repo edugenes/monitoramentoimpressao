@@ -18,6 +18,7 @@ import {
   Eye,
   AlertTriangle,
   Calculator,
+  Scale,
 } from 'lucide-react';
 
 const menuItems = [
@@ -25,6 +26,7 @@ const menuItems = [
   { href: '/impressoras', label: 'Impressoras', icon: Printer, adminOnly: false },
   { href: '/setores', label: 'Setores', icon: Building2, adminOnly: true },
   { href: '/cotas', label: 'Cotas', icon: Gauge, adminOnly: false },
+  { href: '/balanceamento', label: 'Balanceamento', icon: Scale, adminOnly: false },
   { href: '/liberacoes', label: 'Liberações', icon: KeyRound, adminOnly: false },
   { href: '/calculadora', label: 'Calc. Liberação', icon: Calculator, adminOnly: true },
   { href: '/monitoramento', label: 'Monitoramento', icon: Activity, adminOnly: false },

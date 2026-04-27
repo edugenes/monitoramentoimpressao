@@ -71,6 +71,54 @@ function snmpGet(session, oids) {
   });
 }
 
+function snmpSet(session, varbinds) {
+  return new Promise((resolve) => {
+    session.set(varbinds, (error, result) => {
+      if (error) {
+        resolve({ error: error.message || String(error) });
+        return;
+      }
+      resolve({ varbinds: result });
+    });
+  });
+}
+
+// OIDs candidatos para mensagem do painel HP. Variam por modelo;
+// `setControlPanelMessage` tenta cada um ate um aceitar o SET.
+const PANEL_MESSAGE_OIDS = [
+  '1.3.6.1.4.1.11.2.3.9.4.2.1.1.2.5.0',  // hp display message clearable (LaserJet Pro/MFP)
+  '1.3.6.1.4.1.11.2.3.9.4.2.1.1.5.1.5.0',
+  '1.3.6.1.2.1.43.16.5.1.2.1.1',         // prtConsoleDisplayBufferText (Printer MIB)
+];
+
+async function setControlPanelMessage(ip, community, text) {
+  const value = text == null ? '' : String(text);
+  const session = snmp.createSession(ip, community || 'public', {
+    timeout: SNMP_TIMEOUT,
+    version: snmp.Version2c,
+  });
+  session.on('error', () => { /* swallow */ });
+
+  const attempts = [];
+  try {
+    for (const oid of PANEL_MESSAGE_OIDS) {
+      const varbinds = [{ oid, type: snmp.ObjectType.OctetString, value }];
+      const r = await snmpSet(session, varbinds);
+      if (!r.error && r.varbinds && r.varbinds[0] && !snmp.isVarbindError(r.varbinds[0])) {
+        return { success: true, oid };
+      }
+      attempts.push({ oid, error: r.error || 'varbind error' });
+    }
+    return { success: false, attempts };
+  } finally {
+    session.close();
+  }
+}
+
+async function clearControlPanelMessage(ip, community) {
+  return setControlPanelMessage(ip, community, '');
+}
+
 function parseVarbindValue(vb) {
   if (snmp.isVarbindError(vb)) return null;
   if (vb.type === snmp.ObjectType.NoSuchObject ||
@@ -310,6 +358,16 @@ function updateQuotaUsage(printerId, currentPageCount) {
     UPDATE quotas SET current_usage = ?
     WHERE printer_id = ? AND period = ?
   `).run(usage, printerId, period);
+
+  // Sincroniza Cota Local da impressora (best-effort, nao bloqueia coleta).
+  // Lazy require para evitar dependencia circular com printerControlService.
+  try {
+    const printerControl = require('./printerControlService');
+    printerControl.syncQuotaToPrinter(printerId, { triggeredBy: 'scheduler' })
+      .catch((err) => console.warn(`[printerControl] sync ${printerId}: ${err.message}`));
+  } catch (err) {
+    console.warn('[printerControl] require falhou:', err.message);
+  }
 }
 
 async function collectAll() {
@@ -492,4 +550,6 @@ module.exports = {
   closeMonth,
   rolloverMonth,
   getCollectionStatus,
+  setControlPanelMessage,
+  clearControlPanelMessage,
 };

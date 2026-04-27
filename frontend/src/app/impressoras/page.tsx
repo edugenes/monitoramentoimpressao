@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Printer, Sector, SnmpReading, SnmpTestResult } from '@/lib/types';
+import { Printer, Sector, SnmpReading, SnmpTestResult, SyncQuotaResult } from '@/lib/types';
 import { formatDateTime } from '@/lib/dateUtils';
 import { usePolling } from '@/hooks/usePolling';
 import Modal from '@/components/Modal';
@@ -10,7 +10,7 @@ import Pagination from '@/components/Pagination';
 import SortableTh from '@/components/SortableTh';
 import { useTableSort } from '@/hooks/useTableSort';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, Printer as PrinterIcon, Wifi, WifiOff, Droplets } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Printer as PrinterIcon, Wifi, WifiOff, Droplets, RefreshCw, Lock, Unlock } from 'lucide-react';
 
 const PAGE_SIZE = 12;
 
@@ -23,7 +23,8 @@ export default function Impressoras() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Printer | null>(null);
-  const [form, setForm] = useState({ name: '', model: '', sector_id: '', local_description: '', ip_address: '', snmp_community: 'public' });
+  const [form, setForm] = useState({ name: '', model: '', sector_id: '', local_description: '', ip_address: '', snmp_community: 'public', quota_sync_enabled: false });
+  const [syncing, setSyncing] = useState<Record<number, boolean>>({});
   const [page, setPage] = useState(1);
   const [testModal, setTestModal] = useState<{ open: boolean; loading: boolean; result: SnmpTestResult | null; printerId: number | null }>({
     open: false, loading: false, result: null, printerId: null,
@@ -53,7 +54,7 @@ export default function Impressoras() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: '', model: '', sector_id: '', local_description: '', ip_address: '', snmp_community: 'public' });
+    setForm({ name: '', model: '', sector_id: '', local_description: '', ip_address: '', snmp_community: 'public', quota_sync_enabled: false });
     setModalOpen(true);
   }
 
@@ -66,6 +67,7 @@ export default function Impressoras() {
       local_description: printer.local_description || '',
       ip_address: printer.ip_address || '',
       snmp_community: printer.snmp_community || 'public',
+      quota_sync_enabled: !!printer.quota_sync_enabled,
     });
     setModalOpen(true);
   }
@@ -80,6 +82,7 @@ export default function Impressoras() {
         local_description: form.local_description,
         ip_address: form.ip_address,
         snmp_community: form.snmp_community,
+        quota_sync_enabled: form.quota_sync_enabled,
         ...(editing ? { active: editing.active } : {}),
       };
       if (editing) {
@@ -90,6 +93,44 @@ export default function Impressoras() {
       setModalOpen(false);
       fetchData(false);
     } catch { alert('Erro ao salvar impressora'); }
+  }
+
+  async function handleSyncQuota(printer: Printer) {
+    if (!printer.ip_address) return;
+    setSyncing((s) => ({ ...s, [printer.id]: true }));
+    try {
+      const result = await api.post<SyncQuotaResult>(`/printers/${printer.id}/sync-quota`, {});
+      if (result.skipped) {
+        alert(`Sync ignorado: ${result.reason}`);
+      } else if (result.success) {
+        alert(`Cota Local atualizada: ${result.credits} creditos enviados.`);
+      } else {
+        alert(`Falha no sync. Verifique credenciais EWS.\n${JSON.stringify(result.results || {}, null, 2)}`);
+      }
+      fetchData(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao sincronizar cota';
+      alert(msg);
+    } finally {
+      setSyncing((s) => ({ ...s, [printer.id]: false }));
+    }
+  }
+
+  async function handleManualBlock(printer: Printer) {
+    if (!confirm(`Bloquear ${printer.name} agora? A impressora vai parar de imprimir para Convidado e Outros.`)) return;
+    try {
+      await api.post(`/printers/${printer.id}/block`, {});
+      fetchData(false);
+    } catch { alert('Erro ao bloquear'); }
+  }
+
+  async function handleManualUnblock(printer: Printer) {
+    const credits = prompt(`Liberar ${printer.name} com quantos creditos?`, '500');
+    if (credits == null) return;
+    try {
+      await api.post(`/printers/${printer.id}/unblock`, { credits: Number(credits) });
+      fetchData(false);
+    } catch { alert('Erro ao desbloquear'); }
   }
 
   async function handleDelete(id: number) {
@@ -189,6 +230,7 @@ export default function Impressoras() {
                       currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
                     <SortableTh label="Toner" sortKey="toner" align="center"
                       currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
+                    {isAdmin && <th className="text-center p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Cota Local</th>}
                     <SortableTh label="Status" sortKey="status" align="left"
                       currentKey={sortKey} currentDir={sortDir} onSortChange={handleSort} />
                     {isAdmin && <th className="text-right p-3 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ações</th>}
@@ -276,6 +318,40 @@ export default function Impressoras() {
                             <span className="text-xs text-slate-300">—</span>
                           )}
                         </td>
+                        {isAdmin && (
+                          <td className="p-3 text-center">
+                            {printer.quota_sync_enabled ? (
+                              printer.last_quota_sync_credits != null ? (
+                                <div className="flex flex-col items-center">
+                                  <span
+                                    className={`text-sm font-semibold tabular-nums ${
+                                      printer.last_quota_sync_credits === 0 ? 'text-red-600' : 'text-slate-700'
+                                    }`}
+                                    title={
+                                      printer.last_quota_sync_at
+                                        ? `Sincronizado em ${formatDateTime(printer.last_quota_sync_at)}`
+                                        : ''
+                                    }
+                                  >
+                                    {printer.last_quota_sync_credits.toLocaleString('pt-BR')}
+                                  </span>
+                                  {printer.last_quota_sync_credits === 0 && (
+                                    <span className="text-[10px] text-red-500 font-medium">BLOQUEADA</span>
+                                  )}
+                                  {printer.last_quota_sync_error && (
+                                    <span className="text-[10px] text-amber-600" title={printer.last_quota_sync_error}>
+                                      ultimo sync falhou
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-400">aguardando sync</span>
+                              )
+                            ) : (
+                              <span className="text-xs text-slate-300">desativado</span>
+                            )}
+                          </td>
+                        )}
                         <td className="p-3">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                             printer.active ? 'bg-green-50 text-green-700 ring-1 ring-green-600/10' : 'bg-red-50 text-red-700 ring-1 ring-red-600/10'
@@ -284,6 +360,35 @@ export default function Impressoras() {
                         {isAdmin && (
                           <td className="p-3 pr-4 text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {printer.ip_address && printer.quota_sync_enabled && (
+                                <button
+                                  onClick={() => handleSyncQuota(printer)}
+                                  disabled={syncing[printer.id]}
+                                  className="p-1.5 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-50"
+                                  title="Sincronizar Cota Local"
+                                >
+                                  <RefreshCw className={`h-3.5 w-3.5 ${syncing[printer.id] ? 'animate-spin' : ''}`} />
+                                </button>
+                              )}
+                              {printer.ip_address && printer.quota_sync_enabled && (
+                                printer.last_quota_sync_credits === 0 ? (
+                                  <button
+                                    onClick={() => handleManualUnblock(printer)}
+                                    className="p-1.5 rounded-md text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                                    title="Desbloquear manualmente"
+                                  >
+                                    <Unlock className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleManualBlock(printer)}
+                                    className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    title="Bloquear manualmente"
+                                  >
+                                    <Lock className="h-3.5 w-3.5" />
+                                  </button>
+                                )
+                              )}
                               {printer.ip_address && (
                                 <button onClick={() => handleTestSnmp(printer.id)}
                                   className="p-1.5 rounded-md text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors" title="Testar SNMP">
@@ -303,7 +408,7 @@ export default function Impressoras() {
                     );
                   })}
                   {paginated.length === 0 && (
-                    <tr><td colSpan={isAdmin ? 7 : 5} className="p-12 text-center text-slate-400">Nenhuma impressora encontrada</td></tr>
+                    <tr><td colSpan={isAdmin ? 8 : 5} className="p-12 text-center text-slate-400">Nenhuma impressora encontrada</td></tr>
                   )}
                 </tbody>
               </table>
@@ -350,6 +455,21 @@ export default function Impressoras() {
               <input type="text" value={form.snmp_community} onChange={(e) => setForm({ ...form, snmp_community: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700" placeholder="public" />
             </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <input
+              type="checkbox"
+              id="quota_sync_enabled"
+              checked={form.quota_sync_enabled}
+              onChange={(e) => setForm({ ...form, quota_sync_enabled: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="quota_sync_enabled" className="flex-1 cursor-pointer">
+              <span className="block text-sm font-medium text-slate-700">Sincronizar Cota Local com a impressora (HP)</span>
+              <span className="block text-xs text-slate-500 mt-0.5">
+                Quando ativado, o sistema atualiza os créditos das contas Convidado e Outros via EWS, fazendo a impressora bloquear sozinha quando a cota acabar. Requer credencial admin EWS configurada no servidor.
+              </span>
+            </label>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-2 text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">Cancelar</button>
