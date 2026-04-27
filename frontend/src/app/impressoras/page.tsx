@@ -360,7 +360,7 @@ export default function Impressoras() {
                         {isAdmin && (
                           <td className="p-3 pr-4 text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {printer.ip_address && printer.quota_sync_enabled && (
+                              {!!printer.ip_address && !!printer.quota_sync_enabled && (
                                 <button
                                   onClick={() => handleSyncQuota(printer)}
                                   disabled={syncing[printer.id]}
@@ -370,7 +370,7 @@ export default function Impressoras() {
                                   <RefreshCw className={`h-3.5 w-3.5 ${syncing[printer.id] ? 'animate-spin' : ''}`} />
                                 </button>
                               )}
-                              {printer.ip_address && printer.quota_sync_enabled && (
+                              {!!printer.ip_address && !!printer.quota_sync_enabled && (
                                 printer.last_quota_sync_credits === 0 ? (
                                   <button
                                     onClick={() => handleManualUnblock(printer)}
