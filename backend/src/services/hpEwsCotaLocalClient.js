@@ -127,9 +127,20 @@ function extractCsrf(html) {
   return /name="CSRFToken"[^>]*value="([^"]+)"/i.exec(html || '')?.[1] || null;
 }
 
-// Login HP FutureSmart: GET /hp/device/SignIn/Index pra capturar CSRF+cookie,
-// depois POST com agentIdSelect/PinDropDown/PasswordTextBox.
-async function login(session) {
+// Best-effort signout: HP FutureSmart aceita GET em /hp/device/SignOut/Index
+// para encerrar sessao admin previa. Usado para destravar 409 Conflict.
+async function tryForceSignout(session) {
+  try {
+    await httpReq(session, '/hp/device/SignOut/Index');
+  } catch { /* ignore */ }
+  try {
+    await httpReq(session, '/hp/device/SignOut/Action.aspx');
+  } catch { /* ignore */ }
+  // Limpa cookies da sessao atual para o proximo SignIn comecar limpo
+  session.cookie = '';
+}
+
+async function doLoginRequest(session) {
   // GET prepara cookie e CSRF
   const get = await httpReq(session, '/hp/device/SignIn/Index');
   if (get.status >= 400) {
@@ -152,10 +163,40 @@ async function login(session) {
     referer: session.baseUrl + '/hp/device/SignIn/Index',
   });
 
+  return post;
+}
+
+// Login HP FutureSmart: GET /hp/device/SignIn/Index pra capturar CSRF+cookie,
+// depois POST com agentIdSelect/PinDropDown/PasswordTextBox.
+//
+// Trata especificamente status 409 (Conflict): a HP FutureSmart retorna 409
+// quando ja existe outra sessao admin ativa (aba aberta no navegador, sessao
+// presa de chamada anterior). Tentamos forcar signout e refazer login.
+async function login(session) {
+  let post = await doLoginRequest(session);
+
   // Login OK = 302 e Location nao volta pra SignIn
   if (post.status === 302 && post.location && !/SignIn/i.test(post.location)) {
     return true;
   }
+
+  // 409 = sessao admin concorrente. Tenta forcar signout e relogar 1x.
+  if (post.status === 409) {
+    await tryForceSignout(session);
+    await new Promise(r => setTimeout(r, 1500)); // a HP precisa de tempinho
+    post = await doLoginRequest(session);
+    if (post.status === 302 && post.location && !/SignIn/i.test(post.location)) {
+      return true;
+    }
+    // Continua 409 - sessao trancada por um navegador externo
+    if (post.status === 409) {
+      throw new Error(
+        'Outra sessao admin esta ativa no EWS desta impressora. ' +
+        'Feche todas as abas do EWS no navegador e aguarde 1 minuto antes de tentar novamente.'
+      );
+    }
+  }
+
   // Senha errada normalmente retorna 200 com a propria pagina de login de novo
   throw new Error(`Login falhou: status=${post.status} location=${post.location || '(none)'} title="${safeText(post.body, 80)}"`);
 }

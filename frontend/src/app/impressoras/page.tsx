@@ -105,7 +105,23 @@ export default function Impressoras() {
       } else if (result.success) {
         alert(`Cota Local atualizada: ${result.credits} creditos enviados.`);
       } else {
-        alert(`Falha no sync. Verifique credenciais EWS.\n${JSON.stringify(result.results || {}, null, 2)}`);
+        // Extrai mensagens de erro de cada conta para exibir de forma amigavel
+        const errs = Array.isArray(result.results)
+          ? result.results.filter((r: { success: boolean; error?: string }) => !r.success).map((r: { account: string; error?: string }) => `${r.account}: ${r.error || 'erro'}`)
+          : [];
+        const allText = errs.join('\n');
+        if (/sessao admin esta ativa|409/i.test(allText)) {
+          alert(
+            'Outra sessao admin esta aberta no EWS desta impressora.\n\n' +
+            'Como resolver:\n' +
+            '1. Feche TODAS as abas do navegador que estejam acessando ' + printer.ip_address + '\n' +
+            '2. Aguarde 60 segundos\n' +
+            '3. Clique em Sincronizar de novo\n\n' +
+            'A HP so permite UMA sessao admin por vez.'
+          );
+        } else {
+          alert(`Falha no sync. Verifique credenciais EWS.\n${allText || JSON.stringify(result.results || {}, null, 2)}`);
+        }
       }
       fetchData(false);
     } catch (err: unknown) {
